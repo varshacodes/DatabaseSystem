@@ -30,6 +30,15 @@ public class JoinIterator implements RowTraverser
     {
         return joinFieldMapping;
     }
+
+    @Override
+    public void close() throws IOException
+    {
+        leftITerator.close();
+        rightIterator.close();
+
+    }
+
     private void setJoinFieldTable()
     {
 

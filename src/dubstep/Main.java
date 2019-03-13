@@ -59,5 +59,6 @@ public class Main
                 return;
             }
         }
+        rowIterator.close();
     }
 }

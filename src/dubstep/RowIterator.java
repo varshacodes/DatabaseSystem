@@ -13,7 +13,13 @@ public class RowIterator implements RowTraverser
     HashMap<String,Integer> FieldPositionMapping;
     String csvFile;
 
-    public RowIterator(String TableName,HashMap<String,Integer> FieldPositionMapping) throws FileNotFoundException
+    @Override
+    public void close() throws IOException
+    {
+        reader.close();
+    }
+
+    public RowIterator(String TableName, HashMap<String,Integer> FieldPositionMapping) throws FileNotFoundException
     {
         ///Users/varshaganesh/IdeaProjects/team16/src/
         this.TableName = TableName;

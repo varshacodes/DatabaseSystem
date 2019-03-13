@@ -11,4 +11,5 @@ public interface RowTraverser
     boolean hasNext()throws IOException;
     void reset()throws IOException;
     HashMap<String, Integer> getFieldPositionMapping();
+    void close() throws IOException;
 }

@@ -22,6 +22,13 @@ public class ProjectIterator implements RowTraverser
     }
 
     @Override
+    public void close() throws IOException
+    {
+        DataRowIterator.close();
+
+    }
+
+    @Override
     public void reset() throws IOException
     {
          DataRowIterator.reset();

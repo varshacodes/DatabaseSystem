@@ -3,7 +3,6 @@ import net.sf.jsqlparser.expression.PrimitiveValue;
 
 import java.io.IOException;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
@@ -18,6 +17,16 @@ public class UnionIterator implements RowTraverser
     public HashMap<String, Integer> getFieldPositionMapping()
     {
         return currenIterator.getFieldPositionMapping();
+    }
+
+    @Override
+    public void close() throws IOException
+    {
+        for(RowTraverser rowIterator: rowIteratorsList)
+        {
+            rowIterator.close();
+        }
+
     }
 
     @Override
