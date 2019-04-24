@@ -8,85 +8,108 @@ import java.util.Iterator;
 
 public class JoinIterator implements RowTraverser
 {
-
-
-    RowTraverser leftITerator;
+    RowTraverser leftIterator;
     RowTraverser rightIterator;
     PrimitiveValue[] leftDataRow;
     PrimitiveValue[] joinData;
-    HashMap<String, Integer> joinFieldMapping = new HashMap<>();
+    HashMap<String, Integer> FieldPositionMapping;
+    PrimitiveValue[] current;
+    boolean isInitialized;
 
-    public JoinIterator(RowTraverser leftITerator , RowTraverser rightIterator)  throws IOException, SQLException
+    public JoinIterator(RowTraverser leftITerator , RowTraverser rightIterator)
     {
-       this.leftITerator = leftITerator;
+       this.leftIterator = leftITerator;
        this.rightIterator = rightIterator;
-       this.leftDataRow = this.leftITerator.next();
-       setJoinFieldTable();
+       this.isInitialized = false;
+       setFieldPositionMapping();
 
     }
 
-    @Override
-    public HashMap<String, Integer> getFieldPositionMapping()
+    private void initialize()throws IOException, SQLException, ClassNotFoundException
     {
-        return joinFieldMapping;
-    }
-
-    @Override
-    public void close() throws IOException
-    {
-        leftITerator.close();
-        rightIterator.close();
+        this.leftDataRow = leftIterator.next();
 
     }
 
-    private void setJoinFieldTable()
+    public void setLeftIterator(RowTraverser leftIterator)
     {
+        this.leftIterator = leftIterator;
+    }
 
-        joinFieldMapping = leftITerator.getFieldPositionMapping();
+    public void setRightIterator(RowTraverser rightIterator)
+    {
+        this.rightIterator = rightIterator;
+    }
+
+    private void setFieldPositionMapping()
+    {
+        FieldPositionMapping = new HashMap<String, Integer>();
+        HashMap<String, Integer> leftFieldMapping = leftIterator.getFieldPositionMapping();
         HashMap<String, Integer> rightFieldMapping = rightIterator.getFieldPositionMapping();
-        int sizeOfLeft = joinFieldMapping.size();
+        int sizeOfLeft = Utility.getMaxPosition(leftFieldMapping) + 1;
+        Iterator<String> FieldKeys = leftFieldMapping.keySet().iterator();
 
-        Iterator<String> FieldKeys = rightFieldMapping.keySet().iterator();
+        while (FieldKeys.hasNext())
+        {
+            String FieldName = FieldKeys.next();
+            int position = leftFieldMapping.get(FieldName);
+            FieldPositionMapping.put(FieldName,position);
+        }
+
+        FieldKeys = rightFieldMapping.keySet().iterator();
 
         while (FieldKeys.hasNext())
         {
             String FieldName = FieldKeys.next();
             int position = sizeOfLeft+ rightFieldMapping.get(FieldName);
-            joinFieldMapping.put(FieldName,position);
+            FieldPositionMapping.put(FieldName,position);
+
         }
-
-
 
     }
 
 
 
     @Override
-    public PrimitiveValue[] next() throws SQLException, IOException {
-
-
-
+    public PrimitiveValue[] next() throws SQLException, IOException, ClassNotFoundException
+    {
+        if(!isInitialized)
+        {
+            isInitialized = true;
+            initialize();
+        }
         if(this.leftDataRow != null)
         {
-            if (this.rightIterator.hasNext())
+            PrimitiveValue[] rightDataRow = rightIterator!= null? this.rightIterator.next(): null;
+
+             if (rightDataRow != null )
+             {
+                 joinData = mergeValues(this.leftDataRow, rightDataRow);
+                 current = joinData;
+                 return joinData;
+
+             }
+             else
+             {
+                this.leftDataRow = leftIterator !=null ? this.leftIterator.next(): null;
+                if(leftDataRow!=null)
                 {
-                    joinData = mergeValues(this.leftDataRow, this.rightIterator.next());
+                    rightIterator.reset();
+                    joinData = mergeValues(this.leftDataRow,rightIterator.next());
+                    current = joinData;
                     return joinData;
                 }
-                else
-                {
-                    if(this.leftITerator.hasNext())
-                    {
-                        this.leftDataRow = this.leftITerator.next();
-                        rightIterator.reset();
-                        joinData = mergeValues(this.leftDataRow,this.rightIterator.next());
-                        return joinData;
-                    }
+             }
+        }
 
+        current = null;
+        return null;
+    }
 
-                }
-            }
-        return  null;
+    @Override
+    public PrimitiveValue[] getcurrent()
+    {
+        return current;
     }
 
     private PrimitiveValue[] mergeValues(PrimitiveValue[] leftData, PrimitiveValue[] rightData)
@@ -107,15 +130,37 @@ public class JoinIterator implements RowTraverser
          return mergeData;
 
     }
+
+
     @Override
-    public boolean hasNext() throws IOException {
-        return false;
+    public void reset() throws IOException,SQLException,ClassNotFoundException
+    {
+      leftIterator.reset();
+      rightIterator.reset();
+      isInitialized = false;
+    }
+
+    public RowTraverser getLeftChild()
+    {
+        return leftIterator;
+    }
+
+    public RowTraverser getRightChild()
+    {
+        return rightIterator;
     }
 
     @Override
-    public void reset() throws IOException
+    public HashMap<String, Integer> getFieldPositionMapping()
     {
-      leftITerator.reset();
-      rightIterator.reset();
+        return FieldPositionMapping;
+    }
+
+    @Override
+    public void close() throws IOException,ClassNotFoundException
+    {
+        leftIterator.close();
+        rightIterator.close();
+
     }
 }

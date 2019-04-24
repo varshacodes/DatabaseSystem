@@ -10,20 +10,9 @@ public class FilterIterator implements RowTraverser
     RowTraverser dataRowIterator;
     HashMap<String,Integer> FieldPositionMapping;
     Expression whereCondition;
+    PrimitiveValue[] current;
 
-    @Override
-    public void reset() throws IOException
-    {
-      dataRowIterator.reset();
-    }
-
-    @Override
-    public HashMap<String, Integer> getFieldPositionMapping()
-    {
-        return FieldPositionMapping;
-    }
-
-    public FilterIterator(RowTraverser dataRowIterator,Expression whereCondition)
+    public FilterIterator(RowTraverser dataRowIterator, Expression whereCondition)
     {
         this.dataRowIterator = dataRowIterator;
         this.FieldPositionMapping = FieldPositionMapping;
@@ -31,25 +20,19 @@ public class FilterIterator implements RowTraverser
         this.FieldPositionMapping = dataRowIterator.getFieldPositionMapping();
     }
 
-    public boolean hasNext()throws IOException
+    public void setRowIterator(RowTraverser dataRowIterator)
     {
-        if(dataRowIterator.hasNext())
-        {
-            return true;
-        }
-        else {
-            return  false;
-        }
+        this.dataRowIterator = dataRowIterator;
     }
 
     @Override
-    public void close() throws IOException
+    public void close() throws IOException,ClassNotFoundException
     {
         dataRowIterator.close();
 
     }
 
-    public PrimitiveValue[] next() throws SQLException, IOException
+    public PrimitiveValue[] next() throws SQLException, IOException,ClassNotFoundException
     {
        if(dataRowIterator!= null)
        {
@@ -74,6 +57,33 @@ public class FilterIterator implements RowTraverser
 
        return null;
 
+    }
+
+    @Override
+    public PrimitiveValue[] getcurrent()
+    {
+        return current;
+    }
+
+    @Override
+    public void reset() throws IOException,SQLException,ClassNotFoundException
+    {
+        dataRowIterator.reset();
+    }
+
+    @Override
+    public HashMap<String, Integer> getFieldPositionMapping()
+    {
+        return FieldPositionMapping;
+    }
+
+    public RowTraverser getChild() {
+        return dataRowIterator;
+    }
+
+    public Expression getWhereCondition()
+    {
+        return whereCondition;
     }
 
 }

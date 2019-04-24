@@ -45,4 +45,49 @@ public enum FieldType
 
     }
 
+    public static FieldType getFieldType(PrimitiveValue value)
+    {
+        if(value instanceof LongValue)
+        {
+            return FieldType.INT;
+        }
+        if(value instanceof DoubleValue)
+        {
+            return FieldType.DOUBLE;
+        }
+        if(value instanceof  StringValue)
+        {
+            return FieldType.STRING;
+        }
+        if(value instanceof DateValue)
+        {
+            return FieldType.DATE;
+        }
+
+        return FieldType.STRING;
+    }
+
+    public static boolean isPrimitveValue(Expression value)
+    {
+        if(value instanceof LongValue)
+        {
+            return  true;
+        }
+        if(value instanceof DoubleValue)
+        {
+            return true;
+        }
+         if(value instanceof  StringValue)
+        {
+            return true;
+        }
+         if(value instanceof DateValue)
+         {
+             return true;
+         }
+
+         return false;
+
+
+    }
 }

@@ -12,6 +12,8 @@ public class UnionIterator implements RowTraverser
     List<RowTraverser> rowIteratorsList;
     RowTraverser currenIterator;
     int IteratorPosition;
+    PrimitiveValue[] current;
+
 
     @Override
     public HashMap<String, Integer> getFieldPositionMapping()
@@ -20,7 +22,7 @@ public class UnionIterator implements RowTraverser
     }
 
     @Override
-    public void close() throws IOException
+    public void close() throws IOException,ClassNotFoundException
     {
         for(RowTraverser rowIterator: rowIteratorsList)
         {
@@ -30,7 +32,7 @@ public class UnionIterator implements RowTraverser
     }
 
     @Override
-    public void reset() throws IOException
+    public void reset() throws IOException,SQLException,ClassNotFoundException
     {
         IteratorPosition = 0;
        for(RowTraverser rowIterator: rowIteratorsList)
@@ -49,7 +51,7 @@ public class UnionIterator implements RowTraverser
 
 
     @Override
-    public PrimitiveValue[] next() throws SQLException, IOException
+    public PrimitiveValue[] next() throws SQLException, IOException,ClassNotFoundException
     {
 
         if(currenIterator != null)
@@ -62,27 +64,22 @@ public class UnionIterator implements RowTraverser
                 return next();
             }
 
+            current = dataRow;
             return dataRow;
         }
         else {
 
+            current = null;
             return null;
         }
 
     }
 
     @Override
-    public boolean hasNext() throws IOException
+    public PrimitiveValue[] getcurrent()
     {
-        if(currenIterator.hasNext())
-        {
-            return true;
-        }
-        else if(IteratorPosition < rowIteratorsList.size())
-        {
-            return true;
-        }
-
-        return false;
+        return current;
     }
+
+
 }

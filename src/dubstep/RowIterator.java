@@ -4,7 +4,10 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.List;
+import java.io.File;
 
 public class RowIterator implements RowTraverser
 {
@@ -12,20 +15,34 @@ public class RowIterator implements RowTraverser
     BufferedReader reader;
     HashMap<String,Integer> FieldPositionMapping;
     String csvFile;
+    PrimitiveValue[] current;
+    FieldType []FieldTypes;
 
-    @Override
-    public void close() throws IOException
+    public RowIterator(String TableName) throws FileNotFoundException
     {
-        reader.close();
+        this.TableName = TableName;
+        this.csvFile = "data/" + this.TableName + ".csv";
+        this.reader = new BufferedReader(new FileReader(csvFile));
+        this.FieldTypes = TableInformation.getFieldTypes(TableName);
+        this.FieldPositionMapping = TableInformation.getFieldPostionMapping(TableName);
     }
 
-    public RowIterator(String TableName, HashMap<String,Integer> FieldPositionMapping) throws FileNotFoundException
+    public RowIterator(String TableName,  HashMap<String,Integer> FieldPositionMapping) throws FileNotFoundException
     {
-        ///Users/varshaganesh/IdeaProjects/team16/src/
         this.TableName = TableName;
         this.csvFile = "data/" + this.TableName + ".csv";
         this.reader = new BufferedReader(new FileReader(csvFile));
         this.FieldPositionMapping = FieldPositionMapping;
+        this.FieldTypes = TableInformation.getFieldTypes(TableName);
+
+    }
+
+    public RowIterator(String FileName, HashMap<String,Integer> FieldPositionMapping, FieldType[] fieldTypes) throws FileNotFoundException
+    {
+        this.csvFile = FileName;
+        this.reader = new BufferedReader(new FileReader(csvFile));
+        this.FieldPositionMapping = FieldPositionMapping;
+        this.FieldTypes= fieldTypes;
     }
 
 
@@ -48,7 +65,7 @@ public class RowIterator implements RowTraverser
     }
 
 
-    public PrimitiveValue[] next() throws IOException
+    public PrimitiveValue[] next() throws IOException, SQLException
     {
         if (reader != null)
         {
@@ -56,31 +73,41 @@ public class RowIterator implements RowTraverser
 
             if (Line != null)
             {
-                HashMap<Integer, String> PositionFieldMapping = TableInformation.getPositionFieldMapping(TableName);
-                HashMap<String, FieldType> FieldTypeMapping = TableInformation.getFieldTypeMapping(TableName);
                 String columns[] = Line.split("\\|");
                 PrimitiveValue[] dataRow = new PrimitiveValue[columns.length];
-
-
                 for (int i = 0; i < columns.length; i++)
                 {
-                    String FieldName = PositionFieldMapping.get(i);
-                    FieldType fieldType = FieldTypeMapping.get(FieldName);
-                    PrimitiveValue value = FieldType.getPrimitiveValue(columns[i], fieldType);
+                    PrimitiveValue value = FieldType.getPrimitiveValue(columns[i], this.FieldTypes[i]);
                     dataRow[i] = value;
                 }
 
                 return dataRow;
             }
-
         }
 
-        return null;
+        return  null;
+    }
 
+    public PrimitiveValue[] getcurrent()
+    {
+        return current;
     }
 
     public HashMap<String, Integer> getFieldPositionMapping()
     {
         return FieldPositionMapping;
     }
+
+
+    @Override
+    public void close() throws IOException
+    {
+        reader.close();
+    }
+
+    public String getTableName()
+    {
+        return TableName;
+    }
+
 }

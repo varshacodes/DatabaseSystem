@@ -7,6 +7,7 @@ import java.util.List;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.Iterator;
 
 public class ProjectIterator implements RowTraverser
 {
@@ -14,62 +15,74 @@ public class ProjectIterator implements RowTraverser
     HashMap<String, Integer> PositionFieldMapping;
     List<SelectItem> selectItemList;
     HashMap<String,Integer> projectionMapping;
+    PrimitiveValue[] current;
+    boolean isAllColumns;
 
-    @Override
-    public HashMap<String, Integer> getFieldPositionMapping()
-    {
-        return projectionMapping;
-    }
-
-    @Override
-    public void close() throws IOException
-    {
-        DataRowIterator.close();
-
-    }
-
-    @Override
-    public void reset() throws IOException
-    {
-         DataRowIterator.reset();
-    }
-
-
-    ProjectIterator(RowTraverser DataRowIterator,List<SelectItem> selectItemList)
+    ProjectIterator(RowTraverser DataRowIterator,List<SelectItem> selectItemList, boolean isAllColumns)
     {
         this.DataRowIterator = DataRowIterator;
         this.PositionFieldMapping = DataRowIterator.getFieldPositionMapping();
-        this.selectItemList = selectItemList;
+        this.isAllColumns = isAllColumns;
+        if(!isAllColumns)
+        {
+            this.selectItemList = selectItemList;
+        }
+
         setprojectionMapping();
 
     }
-
     private void setprojectionMapping()
     {
-        this.projectionMapping = new HashMap<>();
-
-        for(int i=0; i < selectItemList.size(); i++)
+        if(isAllColumns)
         {
-            SelectExpressionItem selectItem = (SelectExpressionItem) selectItemList.get(i);
-            String Alias= selectItem.getAlias();
+            this.projectionMapping = DataRowIterator.getFieldPositionMapping();
+        }
+        else {
+             this.projectionMapping = new HashMap<>();
 
-            if(Alias == null)
-            {
-                Alias = selectItem.toString();
+            for (int i = 0; i < selectItemList.size(); i++) {
+                SelectExpressionItem selectItem = (SelectExpressionItem) selectItemList.get(i);
+                String Alias = selectItem.getAlias();
 
+                if (Alias == null) {
+                    Alias = selectItem.toString();
+
+                }
+
+                projectionMapping.put(Alias, i);
             }
-
-            projectionMapping.put(Alias,i);
         }
     }
 
-    @Override
-    public PrimitiveValue[] next() throws SQLException, IOException
+    public void updateProjectionMapping(String queryAlias)
     {
-        if(DataRowIterator != null)
-        {
-            PrimitiveValue[] dataRow = DataRowIterator.next();
+        HashMap<String, Integer> projectionMapping = new HashMap<>();
+        Iterator<String> fieldNames = this.projectionMapping.keySet().iterator();
 
+        while (fieldNames.hasNext())
+        {
+            String key = fieldNames.next();
+            int position = this.projectionMapping.get(key);
+            projectionMapping.put(queryAlias+"."+key,position);
+        }
+        this.projectionMapping = projectionMapping;
+    }
+
+    @Override
+    public PrimitiveValue[] next() throws SQLException, IOException,ClassNotFoundException
+    {
+        if(isAllColumns)
+        {
+            PrimitiveValue[] dataRow = DataRowIterator !=null ? DataRowIterator.next() : null;
+
+            if (dataRow != null)
+            {
+                return  dataRow;
+            }
+        }
+        else
+        {
+            PrimitiveValue[] dataRow = DataRowIterator !=null ? DataRowIterator.next() : null;
             if(dataRow != null)
             {
                 PrimitiveValue[] ProjectRow = new PrimitiveValue[selectItemList.size()];
@@ -81,24 +94,57 @@ public class ProjectIterator implements RowTraverser
                     PrimitiveValue value = evaluator.eval(selectItem.getExpression());
                     ProjectRow[i] = value;
                 }
-                return ProjectRow;
+                return  ProjectRow;
+
             }
         }
+        return  null;
 
-        return null;
     }
 
     @Override
-    public boolean hasNext() throws IOException
+    public PrimitiveValue[] getcurrent()
     {
-        if(DataRowIterator.hasNext())
-        {
-            return true;
-        }
-        else {
+        return current;
+    }
 
-            return false;
-        }
+    public RowTraverser getChild()
+    {
+        return DataRowIterator;
+    }
 
+    public List<SelectItem> getSelectItemList()
+    {
+        return selectItemList;
+    }
+
+    public boolean isAllColumns()
+    {
+        return isAllColumns;
+    }
+
+
+    @Override
+    public HashMap<String, Integer> getFieldPositionMapping()
+    {
+        return projectionMapping;
+    }
+
+    @Override
+    public void close() throws IOException,ClassNotFoundException
+    {
+        DataRowIterator.close();
+
+    }
+
+    @Override
+    public void reset() throws IOException,SQLException,ClassNotFoundException
+    {
+        DataRowIterator.reset();
+    }
+
+    public void setRowIterator(RowTraverser dataRowIterator)
+    {
+        DataRowIterator = dataRowIterator;
     }
 }

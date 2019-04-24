@@ -1,11 +1,11 @@
 package dubstep;
 
+import net.sf.jsqlparser.expression.Function;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.select.*;
-
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import net.sf.jsqlparser.expression.Expression;
 import java.io.IOException;
@@ -18,44 +18,57 @@ public class SelectProcessor
     public static final int FROM_SUBSELECT = 203;
     public static final int PLAIN_SELECT= 301;
     public static final int UNION_SELECT = 302;
-
-    SelectBody selectBody;
-    FromItem fromItem;
-    String TableName;
-    SelectBody subSelectBody;
     boolean isAllcolumns;
-    List<SelectItem> selectItems;
     boolean hasWhereCondition;
-    Expression whereCondition;
-    FromItem rightItem;
-    String rightTable;
-    List<PlainSelect> PlainSelectList;
+    boolean isAggregate;
     boolean hasTableAlias;
-    String LeftTableAlias;
-    String RightTableAlias;
-
+    boolean inMemory;
+    boolean hasOrderBy;
+    boolean hasGroupBy;
+    boolean hasHavingCondition;
+    boolean hasLimitBy;
+    boolean hasJoins;
+    boolean hasQueryAlias;
     int selectType;
     int FromType;
+    Expression havingCondition;
+    Long limitValue;
+    List<Column> groupByColumns;
+    List<PlainSelect> PlainSelectList;
+    List<OrderByElement> orderByFields;
+    List<SelectItem> selectItems;
+    RowTraverser JoinIterator;
+    SelectBody selectBody;
+    SelectBody subSelectBody;
+    Expression whereCondition;
+    String TableName;
+    String LeftTableAlias;
+    String queryAlias;
 
-    public SelectProcessor(SelectBody selectBody)
+
+
+    public SelectProcessor(SelectBody selectBody,boolean inMemory, String queryAlias) throws SQLException,ClassNotFoundException,IOException
     {
        this.selectBody = selectBody;
+       this.inMemory = inMemory;
+       this.hasQueryAlias = queryAlias!=null ? true : false;
+       this.queryAlias = queryAlias;
        parseSelectBody();
     }
 
-    public String getTableName()
-    {
-       return TableName;
-    }
 
-    private void parseSelectBody()
+    private void parseSelectBody() throws SQLException,ClassNotFoundException,IOException
     {
         if(selectBody instanceof PlainSelect)
         {
             selectType = PLAIN_SELECT;
             parseFromItem();
             parseSelectItem();
-            parseWhereHavingCondition();
+            parseWhereCondition();
+            parseGroupBy();
+            parseHavingCondition();
+            parseOrderBy();
+            parseLimitBy();
 
         }
         else if(selectBody instanceof Union)
@@ -66,17 +79,68 @@ public class SelectProcessor
         }
     }
 
-    private void parseFromItem()
+    private void parseLimitBy()
     {
-        fromItem = ((PlainSelect)selectBody).getFromItem();
+
+        Limit limit = ((PlainSelect)selectBody).getLimit();
+        if(limit != null)
+        {
+            limitValue = limit.getRowCount();
+            hasLimitBy = true;
+        }
+
+
+    }
+
+    private void parseHavingCondition() {
+
+        havingCondition = ((PlainSelect) selectBody).getHaving();
+        if(havingCondition != null)
+        {
+            hasHavingCondition = true;
+        }
+        else
+        {
+            hasHavingCondition  = false;
+        }
+
+
+    }
+
+    private void parseOrderBy()
+    {
+        orderByFields = ((PlainSelect)selectBody).getOrderByElements();
+        if(orderByFields !=null)
+        {
+            hasOrderBy = true;
+        }
+
+    }
+
+    private void parseFromItem()throws SQLException,ClassNotFoundException,IOException
+    {
+        FromItem fromItem = ((PlainSelect)selectBody).getFromItem();
         List<Join> joins= ((PlainSelect) selectBody).getJoins();
+        this.hasJoins = joins !=null? true: false;
 
+        if(hasJoins)
+        {
+            FromType = FROM_JOIN;
+            RowTraverser left = parseFromItem(fromItem);
+            RowTraverser right = parseFromItem(joins.get(0).getRightItem());
+            this.JoinIterator = new JoinIterator(left,right);
 
-        if(fromItem instanceof Table)
+            for(int i=1; i < joins.size(); i++)
+            {
+                fromItem = joins.get(i).getRightItem();
+                right = parseFromItem(fromItem);
+                this.JoinIterator = new JoinIterator(JoinIterator,right);
+            }
+        }
+        else if(fromItem instanceof Table)
         {
             FromType = FROM_TABLE;
             TableName = ((Table)fromItem).getWholeTableName();
-
             if(fromItem.getAlias() != null)
             {
                 hasTableAlias = true;
@@ -87,31 +151,52 @@ public class SelectProcessor
         {
             FromType = FROM_SUBSELECT;
             subSelectBody = ((SubSelect) fromItem).getSelectBody();
-        } 
-        if (joins != null)
-        {
-            FromType = FROM_JOIN;
-            for (Join join : joins)
-            {
-                rightItem = join.getRightItem();
-                if (rightItem instanceof  Table)
-                {
-                    rightTable = ((Table) rightItem).getWholeTableName();
-
-                    if(rightItem.getAlias() !=null)
-                    {
-                        RightTableAlias = rightItem.getAlias();
-                    }
-                }
-            }
-
+            queryAlias = fromItem.getAlias();
         }
 
     }
 
+    private RowTraverser parseFromItem(FromItem fromItem) throws SQLException,ClassNotFoundException,IOException
+    {
+        RowTraverser rowTraverser = null;
+
+        if(fromItem instanceof Table)
+        {
+            TableName = ((Table)fromItem).getWholeTableName();
+            hasTableAlias = fromItem.getAlias() != null? true: false;
+            LeftTableAlias = hasTableAlias ? fromItem.getAlias(): null;
+            if(hasTableAlias)
+            {
+                rowTraverser = new TupleReader(TableName,TableInformation.getFieldMappingwithAlias(TableName,LeftTableAlias));
+            }
+            else
+            {
+                rowTraverser = new TupleReader(TableName,TableInformation.getFieldPostionMapping(TableName));
+            }
+
+        }
+        else if(fromItem instanceof SubSelect)
+        {
+            SelectBody subSelectBody = ((SubSelect) fromItem).getSelectBody();
+            SelectProcessor subSelectProcessor = new SelectProcessor(subSelectBody,inMemory,fromItem.getAlias());
+            rowTraverser = subSelectProcessor.processQuery();
+        }
+
+        return rowTraverser;
+    }
+
+    private void parseGroupBy()
+    {
+        groupByColumns = ((PlainSelect)selectBody).getGroupByColumnReferences();
+        if(groupByColumns != null)
+        {
+           hasGroupBy = true;
+           isAllcolumns = true;
+        }
+    }
+
     private void parseSelectItem()
     {
-
         selectItems = ((PlainSelect)selectBody).getSelectItems();
         SelectItem selectItem = selectItems.iterator().next();
 
@@ -121,19 +206,17 @@ public class SelectProcessor
         }
         else {
 
-            isAllcolumns = false;
-
-            if((FromType != FROM_SUBSELECT)&&(selectItem.toString().contains(TableName+".")))
-            {
-                hasTableAlias = true;
-                LeftTableAlias = TableName;
-                RightTableAlias = rightTable;
-            }
-
+                isAllcolumns = false;
+                Expression expression = ((SelectExpressionItem)selectItem).getExpression();
+                if(expression instanceof Function)
+                {
+                    isAggregate = true;
+                    isAllcolumns = true;
+                }
         }
 
     }
-    private void parseWhereHavingCondition()
+    private void parseWhereCondition()
     {
 
         whereCondition = ((PlainSelect) selectBody).getWhere();
@@ -150,7 +233,7 @@ public class SelectProcessor
 
     }
 
-    public RowTraverser processQuery() throws IOException, SQLException
+    public RowTraverser processQuery() throws IOException, SQLException,ClassNotFoundException
     {
         switch (selectType)
         {
@@ -163,148 +246,130 @@ public class SelectProcessor
 
 
 
-    private RowTraverser executePlainSelectQuery() throws IOException, SQLException
+    private RowTraverser executePlainSelectQuery() throws IOException, SQLException,ClassNotFoundException
     {
-        HashMap<String,Integer> fieldPositionMapping;
-        HashMap<String,Integer> rightMapping;
-
-        if(hasTableAlias)
-        {
-            fieldPositionMapping = TableInformation.getFieldMappingwithAlias(TableName,LeftTableAlias);
-        }
-        else
-        {
-            fieldPositionMapping = TableInformation.getFieldPostionMapping(TableName);
-
-        }
+        ProjectIterator projectIterator = null;
 
         switch (FromType)
         {
             case FROM_TABLE:
 
-                RowIterator rowIterator = new RowIterator(TableName,fieldPositionMapping);
+                RowTraverser rowIterator = null;
 
-                if(isAllcolumns)
+                if(hasTableAlias)
                 {
-
-                    if(hasWhereCondition)
-                    {
-                        FilterIterator filterIterator = new FilterIterator(rowIterator,whereCondition);
-                        return filterIterator;
-                    }
-                    else
-                    {
-                        return rowIterator;
-                    }
+                    rowIterator = new TupleReader(TableName,TableInformation.getFieldMappingwithAlias(TableName,LeftTableAlias));
                 }
                 else
                 {
-
-                     if(hasWhereCondition)
-                     {
-                         FilterIterator filterIterator = new FilterIterator(rowIterator,whereCondition);
-                         ProjectIterator projectIterator = new ProjectIterator(filterIterator,selectItems);
-                         return projectIterator;
-                     }
-                     else
-                     {
-                         ProjectIterator projectIterator = new ProjectIterator(rowIterator,selectItems);
-                         return projectIterator;
-                     }
-
+                    rowIterator = new TupleReader(TableName,TableInformation.getFieldPostionMapping(TableName));
 
                 }
+
+                if(hasWhereCondition)
+                {
+                    rowIterator = new FilterIterator(rowIterator,whereCondition);
+                }
+
+                if(isAggregate || hasGroupBy)
+                {
+                    rowIterator = new AggregateIterator(rowIterator,selectItems,groupByColumns,inMemory);
+
+                }
+                if(hasHavingCondition)
+                {
+                    rowIterator = new FilterIterator(rowIterator,havingCondition);
+                }
+                if(hasOrderBy)
+                {
+                    rowIterator = new OrderByIterator(rowIterator,orderByFields,inMemory);
+
+                }
+                if(hasLimitBy)
+                {
+                    rowIterator = new LimitIterator(rowIterator,limitValue);
+                }
+                 projectIterator = new ProjectIterator(rowIterator,selectItems,isAllcolumns);
+
+                 break;
 
             case FROM_SUBSELECT:
 
-                SelectProcessor subSelectProcessor = new SelectProcessor(subSelectBody);
+                SelectProcessor subSelectProcessor = new SelectProcessor(subSelectBody,inMemory,queryAlias);
+
                 RowTraverser DataRowIterator = subSelectProcessor.processQuery();
 
-                    if(isAllcolumns)
-                    {
-                        if(hasWhereCondition)
-                        {
-                            FilterIterator filterIterator = new FilterIterator(DataRowIterator,whereCondition);
-                            return  filterIterator;
-                        }
-                        else
-                        {
-                            return DataRowIterator;
-                        }
+                if(hasWhereCondition)
+                {
+                    DataRowIterator = new FilterIterator(DataRowIterator,whereCondition);
+                }
+                if(isAggregate || hasGroupBy)
+                {
+                    DataRowIterator = new AggregateIterator(DataRowIterator,selectItems,groupByColumns,inMemory);
+                }
+                if(hasHavingCondition)
+                {
+                    DataRowIterator = new FilterIterator(DataRowIterator,havingCondition);
+                }
+                if(hasOrderBy)
+                {
+                    DataRowIterator = new OrderByIterator(DataRowIterator,orderByFields,inMemory);
+                }
+                if(hasLimitBy)
+                {
+                    DataRowIterator = new LimitIterator(DataRowIterator,limitValue);
+                }
 
-                    }
-                    else {
-                            if(hasWhereCondition)
-                            {
-                                FilterIterator filterIterator = new FilterIterator(DataRowIterator,whereCondition);
-                                ProjectIterator projectIterator = new ProjectIterator(filterIterator,selectItems);
-                                return projectIterator;
+                projectIterator = new ProjectIterator(DataRowIterator,selectItems,isAllcolumns);
 
-                            }
-                            else {
-
-                                ProjectIterator projectIterator = new ProjectIterator(DataRowIterator,selectItems);
-                                return projectIterator;
-                            }
-                    }
+                break;
 
             case FROM_JOIN:
 
-                RowIterator left = new RowIterator(TableName,fieldPositionMapping);
-                if(hasTableAlias)
+                if(hasWhereCondition)
                 {
-                    rightMapping = TableInformation.getFieldMappingwithAlias(TableName, RightTableAlias);
-                }
-                else{
-
-                    rightMapping = TableInformation.getFieldPostionMapping(rightTable);
+                    JoinIterator = new FilterIterator(JoinIterator,whereCondition);
                 }
 
-                RowIterator right = new RowIterator(rightTable,rightMapping);
-                JoinIterator joinIterator = new JoinIterator(left,right);
-
-                if (isAllcolumns)
+                if(isAggregate || hasGroupBy)
                 {
-                    if(hasWhereCondition)
-                    {
-                        FilterIterator filterIterator = new FilterIterator(joinIterator,whereCondition);
-                        return filterIterator;
-                    }
-                    else
-                    {
-                        return joinIterator;
-                    }
+                    JoinIterator = new AggregateIterator(JoinIterator,selectItems,groupByColumns,inMemory);
+
                 }
-                else
+                if(hasHavingCondition)
                 {
-                    if(hasWhereCondition)
-                    {
-                        FilterIterator filterIterator = new FilterIterator(joinIterator,whereCondition);
-                        ProjectIterator projectIterator = new ProjectIterator(filterIterator,selectItems);
-                        return projectIterator;
-
-                    }
-                    else
-                    {
-                        ProjectIterator projectIterator = new ProjectIterator(joinIterator,selectItems);
-                        return projectIterator;
-                    }
+                    JoinIterator = new FilterIterator(JoinIterator,havingCondition);
+                }
+                if(hasOrderBy)
+                {
+                    JoinIterator = new OrderByIterator(JoinIterator,orderByFields,inMemory);
+                }
+                if(hasLimitBy)
+                {
+                    JoinIterator = new LimitIterator(JoinIterator,limitValue);
                 }
 
+                projectIterator = new ProjectIterator(JoinIterator,selectItems,isAllcolumns);
 
+                break;
         }
 
-        return null;
+        if(hasQueryAlias)
+        {
+            projectIterator.updateProjectionMapping(queryAlias);
+        }
+
+        return projectIterator;
 
     }
 
-    private RowTraverser executeSelectUnionQuery()throws IOException, SQLException
+    private RowTraverser executeSelectUnionQuery()throws IOException, SQLException, ClassNotFoundException
     {
         List<RowTraverser> IteratorsList = new ArrayList<RowTraverser>();
 
         for(PlainSelect select: PlainSelectList)
         {
-            SelectProcessor selectProcessor = new SelectProcessor((SelectBody)select);
+            SelectProcessor selectProcessor = new SelectProcessor((SelectBody)select,inMemory,null);
             RowTraverser rowIterator = selectProcessor.processQuery();
             IteratorsList.add(rowIterator);
         }
@@ -312,6 +377,5 @@ public class SelectProcessor
         UnionIterator unionIterator = new UnionIterator(IteratorsList);
 
         return unionIterator;
-
     }
 }

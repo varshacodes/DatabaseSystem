@@ -14,45 +14,52 @@ public class Main
 
     public static Statement statement;
 
-    public static void main(String args[]) throws ParseException, IOException, SQLException
+    public static void main(String args[]) throws ParseException, IOException, SQLException, ClassNotFoundException
     {
         CCJSqlParser parser = new CCJSqlParser(System.in);
+        boolean inMemory = true;
+        if(args.length > 0 && args[0].equals("--on-disk"))
+        {
+            inMemory = false;
+        }
+        else
+        {
+            inMemory = true;
+        }
         System.out.println("$> ");
 
         while ((statement = parser.Statement()) != null)
         {
             if (statement instanceof Select)
             {
-                SelectProcessor  selectProcessor = new SelectProcessor(((Select) statement).getSelectBody());
+                SelectProcessor  selectProcessor = new SelectProcessor(((Select) statement).getSelectBody(),inMemory,null);
                 RowTraverser RowIterator = selectProcessor.processQuery();
+                Optimizer optimizer = new Optimizer(RowIterator, inMemory);
+                RowIterator = optimizer.optimize();
                 printResult(RowIterator);
 
             } else if (statement instanceof CreateTable)
             {
-                String TableName = ((CreateTable) statement).getTable().getWholeTableName();
-                TableInformation.addTableInfo(TableName, (CreateTable) statement);
+                Table table = new Table((CreateTable)statement);
+                TableInformation.addTableInfo(table);
+                TupleWriter tupleWriter = new TupleWriter(table);
+                tupleWriter.writeTable(table);
+                tupleWriter.close();
             }
 
             System.out.println("$> ");
         }
     }
 
-    public static void printResult(RowTraverser rowIterator)throws SQLException,IOException
+    public static void printResult(RowTraverser rowIterator)throws SQLException,IOException,ClassNotFoundException
     {
         while (rowIterator != null)
         {
             PrimitiveValue[]  dataRow = rowIterator.next();
 
-            if(dataRow != null)
+            if(dataRow != null && dataRow.length!=0)
             {
-                String Line = dataRow[0].toRawString();
-
-                for(int i =1; i < dataRow.length; i++)
-                {
-                    Line = Line + "|" + dataRow[i].toRawString();
-                }
-                System.out.println(Line);
-
+                System.out.print(Utility.getLine(dataRow));
             }
             else
             {
