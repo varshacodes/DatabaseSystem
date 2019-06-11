@@ -13,8 +13,8 @@ public class SortOnDisk implements RowTraverser
     List<Field> sortFieldList;
     List<OrderByField> orderByFields;
     HashMap<String, Integer> fieldMapping;
-    int No_ofFiles;
-    private static int BLOCK_SIZE = 10000;
+    long No_ofFiles;
+    private static int BLOCK_SIZE = 50000;
     PrimitiveValue[] current;
     RowTraverser sortedIterator;
     PriorityQueue<DataRow> priorityQueue;
@@ -35,10 +35,16 @@ public class SortOnDisk implements RowTraverser
         this.isOderby = false;
         setFileNames(fileName);
         sort();
+        if(No_ofFiles >1)
+        {
+            merge();
+        }
         this.sortedIterator = null;
         this.fileIterators = null;
         setSortedIterator();
     }
+
+
 
     public SortOnDisk(RowTraverser rowIterator, List<OrderByField> orderBy, String fileName, boolean isOrderBy)throws SQLException,IOException,ClassNotFoundException
     {
@@ -51,9 +57,19 @@ public class SortOnDisk implements RowTraverser
         this.isOderby = isOrderBy;
         setFileNames(fileName);
         sort();
+        if(No_ofFiles >1)
+        {
+            merge();
+        }
         this.sortedIterator = null;
         this.fileIterators = null;
         setSortedIterator();
+    }
+
+    @Override
+    public int getNoOfFields()
+    {
+        return rowIterator.getNoOfFields();
     }
 
     private void sort() throws SQLException, IOException,ClassNotFoundException
@@ -86,6 +102,7 @@ public class SortOnDisk implements RowTraverser
             }
 
             this.No_ofFiles = fileCount - 1;
+            System.out.println("No of Files:"+ No_ofFiles);
         }
         rowIterator.close();
     }
@@ -121,6 +138,7 @@ public class SortOnDisk implements RowTraverser
             RowTraverser rowIterator = new TupleReader((FileName+ (FileStart +i)+ ".dat") ,fieldTypes,fieldMapping);
             fileIterators.put(i,rowIterator);
         }
+        System.out.println(fileIterators);
         return fileIterators;
     }
 
@@ -134,11 +152,15 @@ public class SortOnDisk implements RowTraverser
         {
             int count = 1;
 
-            while (dataRow != null && count <= BLOCK_SIZE)
+            while (dataRow != null && count < BLOCK_SIZE)
             {
                 dataRows.add(dataRow);
                 dataRow = rowIterator.next();
                 count = count + 1;
+            }
+            if(dataRow!=null)
+            {
+                dataRows.add(dataRow);
             }
             return dataRows;
         }
@@ -146,58 +168,35 @@ public class SortOnDisk implements RowTraverser
         return null;
 
     }
-
     @Override
     public PrimitiveValue[] next() throws SQLException, IOException, ClassNotFoundException
     {
-        if(sortedIterator !=null)
-        {
-            PrimitiveValue[] dataRow = this.sortedIterator.next();
-
-            if(dataRow !=null)
-            {
-                return  dataRow;
-            }
-        }
-        else if(priorityQueue != null && !priorityQueue.isEmpty())
-        {
-            DataRow dataRow = priorityQueue.poll();
-
-            if (!fileIterators.isEmpty() && dataRow !=null)
-            {
-                int file = dataRow.getFileNo();
-
-                if(fileIterators.containsKey(file))
-                {
-                    RowTraverser rowIterator = fileIterators.get(file);
-                    PrimitiveValue[] data = rowIterator.next();
-
-                    if(data !=null)
-                    {
-                        priorityQueue.add(new DataRow(file, data));
-
-                    }
-                    else {
-                        rowIterator.close();
-                        fileIterators.remove(file);
-                    }
-
-                }
-                return dataRow.getDataRow();
-            }
-        }
-
-        return null;
+        PrimitiveValue[] dataRow = sortedIterator !=null ? this.sortedIterator.next(): null;
+        return  dataRow;
 
     }
-
-
-
-    @Override
-    public PrimitiveValue[] getcurrent()
+    private PriorityQueue<DataRow> reInit(PriorityQueue<DataRow> priorityQueue,HashMap<Integer,RowTraverser> fileIterators)throws IOException,SQLException,ClassNotFoundException
     {
-        return current;
+        Iterator<Integer> fileNos = fileIterators.keySet().iterator();
+        while (fileNos.hasNext())
+        {
+            int file = fileNos.next();
+            RowTraverser rowIterator = fileIterators.get(file);
+            PrimitiveValue[] data = rowIterator.next();
+            if(data!=null)
+            {
+                priorityQueue.add(new DataRow(file, data));
+
+            }
+            else
+            {
+                fileIterators.remove(file);
+            }
+        }
+
+        return priorityQueue;
     }
+
 
     @Override
     public void reset() throws IOException, SQLException,ClassNotFoundException
@@ -215,11 +214,63 @@ public class SortOnDisk implements RowTraverser
     public void close() throws IOException,ClassNotFoundException
     {
         rowIterator.close();
-    }
+        if(sortedIterator!=null)
+        {
+            sortedIterator.close();
 
-    public RowTraverser getSortedIterator()
+        }
+    }
+    private void merge() throws IOException, SQLException, ClassNotFoundException
     {
-        return sortedIterator;
+        this.fileIterators = getFileIterators();
+        priorityQueue = null;
+
+        if(isOderby)
+        {
+            DataFileExpressionComparator comparator = new DataFileExpressionComparator(orderByFields,fieldMapping);
+            priorityQueue = new PriorityQueue<>(fileIterators.size(),comparator);
+
+        }
+        else
+        {
+            DataFileRowComparator comparator = new DataFileRowComparator(sortFieldList);
+            priorityQueue = new PriorityQueue<>(fileIterators.size(),comparator);
+
+        }
+        priorityQueue = init(priorityQueue, fileIterators);
+
+        TupleWriter out = new TupleWriter((FileName + FileStart + "-Merged" + ".dat"),fieldTypes);
+
+        while (!priorityQueue.isEmpty() || !fileIterators.isEmpty())
+        {
+            DataRow dataRow = priorityQueue.poll();
+
+            if (dataRow != null)
+            {
+                int file = dataRow.getFileNo();
+                if (fileIterators.containsKey(file))
+                {
+                    RowTraverser rowIterator = fileIterators.get(file);
+                    PrimitiveValue[] data = rowIterator.next();
+
+                    if (data != null)
+                    {
+                        priorityQueue.add(new DataRow(file, data));
+
+                    } else {
+                        rowIterator.close();
+                        fileIterators.remove(file);
+                    }
+
+                }
+                out.writeTuple(dataRow.getDataRow());
+            }
+            else if(!fileIterators.isEmpty())
+            {
+                priorityQueue = reInit(priorityQueue,fileIterators);
+            }
+
+        }
     }
 
     public void setSortedIterator() throws IOException,SQLException,ClassNotFoundException
@@ -232,21 +283,8 @@ public class SortOnDisk implements RowTraverser
         {
             if(No_ofFiles >1)
             {
-                this.fileIterators = getFileIterators();
-                priorityQueue = null;
-                if(isOderby)
-                {
-                    DataFileExpressionComparator comparator = new DataFileExpressionComparator(orderByFields,fieldMapping);
-                    priorityQueue = new PriorityQueue<>(fileIterators.size(),comparator);
+                this.sortedIterator= new TupleReader((FileName + FileStart + "-Merged" + ".dat"),fieldTypes,fieldMapping);
 
-                }
-                else
-                {
-                    DataFileRowComparator comparator = new DataFileRowComparator(sortFieldList);
-                    priorityQueue = new PriorityQueue<>(fileIterators.size(),comparator);
-
-                }
-                priorityQueue = init(priorityQueue, fileIterators);
             }
             else
             {

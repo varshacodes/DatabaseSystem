@@ -1,11 +1,16 @@
 package dubstep;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.PrimitiveValue;
+import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
+import net.sf.jsqlparser.schema.Column;
+
 import java.io.IOException;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
-public class FilterIterator implements RowTraverser
+public class FilterIterator extends Evaluate implements RowTraverser
 {
     RowTraverser dataRowIterator;
     HashMap<String,Integer> FieldPositionMapping;
@@ -20,6 +25,12 @@ public class FilterIterator implements RowTraverser
         this.FieldPositionMapping = dataRowIterator.getFieldPositionMapping();
     }
 
+    @Override
+    public int getNoOfFields()
+    {
+        return dataRowIterator.getNoOfFields();
+    }
+
     public void setRowIterator(RowTraverser dataRowIterator)
     {
         this.dataRowIterator = dataRowIterator;
@@ -32,38 +43,31 @@ public class FilterIterator implements RowTraverser
 
     }
 
+
     public PrimitiveValue[] next() throws SQLException, IOException,ClassNotFoundException
     {
-       if(dataRowIterator!= null)
-       {
-           PrimitiveValue[] datarow = dataRowIterator.next();
+        boolean isConditionTrue = false;
 
-           if (datarow != null)
-           {
-               ExpressionEvaluator evaluator = new ExpressionEvaluator(datarow, FieldPositionMapping);
-               boolean isConditionTrue = evaluator.eval(whereCondition).toBool();
+        while (!isConditionTrue)
+        {
+            current = dataRowIterator!= null ?dataRowIterator.next():null;
 
-               if (isConditionTrue)
-               {
-                   return datarow;
+            if (current != null)
+            {
+                if(eval(whereCondition).toBool())
+                {
+                    return current;
+                }
+            }
+            else
+            {
+                return null;
+            }
+        }
 
-               } else {
-
-                   return next();
-               }
-           }
-
-       }
-
-       return null;
-
+        return null;
     }
 
-    @Override
-    public PrimitiveValue[] getcurrent()
-    {
-        return current;
-    }
 
     @Override
     public void reset() throws IOException,SQLException,ClassNotFoundException
@@ -85,5 +89,14 @@ public class FilterIterator implements RowTraverser
     {
         return whereCondition;
     }
+
+    @Override
+    public PrimitiveValue eval(Column column) throws SQLException
+    {
+        int position = this.FieldPositionMapping.get(column.toString());
+        return current[position];
+    }
+
+
 
 }

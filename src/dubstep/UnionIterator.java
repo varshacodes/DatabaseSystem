@@ -16,6 +16,12 @@ public class UnionIterator implements RowTraverser
 
 
     @Override
+    public int getNoOfFields()
+    {
+        return currenIterator.getNoOfFields();
+    }
+
+    @Override
     public HashMap<String, Integer> getFieldPositionMapping()
     {
         return currenIterator.getFieldPositionMapping();
@@ -73,12 +79,6 @@ public class UnionIterator implements RowTraverser
             return null;
         }
 
-    }
-
-    @Override
-    public PrimitiveValue[] getcurrent()
-    {
-        return current;
     }
 
 

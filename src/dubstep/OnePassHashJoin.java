@@ -14,10 +14,12 @@ public class OnePassHashJoin implements RowTraverser
     HashMap<PrimitiveValue, ArrayList<PrimitiveValue[]>> hashTable;
     int leftIndex;
     int rightIndex;
+    PrimitiveValue[] rightDataRow;
     HashMap<String, Integer> FieldPositionMapping;
     Iterator<PrimitiveValue[]> resultSet;
 
-    public OnePassHashJoin(RowTraverser leftIterator, RowTraverser rightIterator,int leftIndex,int rightIndex) throws IOException, SQLException,ClassNotFoundException
+
+    public OnePassHashJoin(RowTraverser leftIterator, RowTraverser rightIterator, int leftIndex, int rightIndex) throws IOException, SQLException,ClassNotFoundException
     {
         this.leftIterator = leftIterator;
         this.rightIterator = rightIterator;
@@ -26,6 +28,12 @@ public class OnePassHashJoin implements RowTraverser
         setFieldPositionMapping();
         hashLeftTable();
 
+    }
+
+    @Override
+    public int getNoOfFields()
+    {
+        return leftIterator.getNoOfFields() + rightIterator.getNoOfFields();
     }
     private void setFieldPositionMapping()
     {
@@ -74,14 +82,14 @@ public class OnePassHashJoin implements RowTraverser
     {
         if(resultSet != null && resultSet.hasNext())
         {
-            return resultSet.next();
+            return mergeValues(resultSet.next(),rightDataRow);
         }
         else
         {
             resultSet = getNextResultSet();
             if(resultSet!= null && resultSet.hasNext())
             {
-                return  resultSet.next();
+                return  mergeValues(resultSet.next(),rightDataRow);
             }
         }
 
@@ -90,37 +98,34 @@ public class OnePassHashJoin implements RowTraverser
 
     private  Iterator<PrimitiveValue[]> getNextResultSet() throws SQLException, IOException, ClassNotFoundException
     {
-        PrimitiveValue[] dataRow = rightIterator!=null ? rightIterator.next():null;
-        if(dataRow == null)
+        rightDataRow = rightIterator!=null ? rightIterator.next():null;
+
+        if(rightDataRow == null)
         {
             return  null;
         }
         else
         {
-            ArrayList<PrimitiveValue[]> leftRows = hashTable.get(dataRow[rightIndex]);
-            if(leftRows != null)
+            ArrayList<PrimitiveValue[]> leftRows = null;
+            while (leftRows== null && rightDataRow!=null)
             {
-                ArrayList<PrimitiveValue[]> JoinedData = mergeData(leftRows,dataRow);
-                return JoinedData.iterator();
-            }
-            else
-            {
-                return getNextResultSet();
+                leftRows = hashTable.get(rightDataRow[rightIndex]);
+                if(leftRows!=null)
+                {
+                    return leftRows.iterator();
+
+                }
+                else
+                {
+                    rightDataRow = rightIterator.next();
+                }
+
             }
         }
+
+        return null;
     }
 
-    private ArrayList<PrimitiveValue[]> mergeData(ArrayList<PrimitiveValue[]> leftRows,PrimitiveValue[] rightDataRow)
-    {
-        ArrayList<PrimitiveValue[]> result = new ArrayList<PrimitiveValue[]>();
-
-        for(PrimitiveValue[] leftDataRow: leftRows)
-        {
-            result.add(mergeValues(leftDataRow,rightDataRow));
-        }
-
-        return result;
-    }
     private PrimitiveValue[] mergeValues(PrimitiveValue[] leftData, PrimitiveValue[] rightData)
     {
         PrimitiveValue[] mergeData = new PrimitiveValue[leftData.length +rightData.length];
@@ -160,11 +165,6 @@ public class OnePassHashJoin implements RowTraverser
         this.rightIterator.close();
     }
 
-    @Override
-    public PrimitiveValue[] getcurrent()
-    {
-        return null;
-    }
 
 
 }

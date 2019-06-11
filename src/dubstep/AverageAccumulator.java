@@ -4,17 +4,18 @@ import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.PrimitiveValue;
 import net.sf.jsqlparser.expression.operators.arithmetic.Addition;
 import net.sf.jsqlparser.expression.operators.arithmetic.Division;
-
+import net.sf.jsqlparser.schema.Column;
 import java.sql.SQLException;
 import java.util.HashMap;
 
-public class AverageAccumulator implements Accumulator
-{
-    PrimitiveValue sum, count;
-    ExpressionEvaluator evaluator;
-    Expression expression;
-    boolean isInitialized;
 
+public class AverageAccumulator extends Evaluate implements Accumulator
+{
+    Addition sum;
+    PrimitiveValue count;
+    Expression expression;
+    HashMap<String, Integer> fieldMapping;
+    PrimitiveValue[] current;
 
     @Override
     public String toString()
@@ -22,37 +23,42 @@ public class AverageAccumulator implements Accumulator
         return "Sum: "+ sum + " Count:" + count;
     }
 
-    public  AverageAccumulator(Expression expression)
+    public  AverageAccumulator(Expression expression,HashMap<String, Integer> fieldMapping,PrimitiveValue[] dataRow)throws SQLException
     {
-        count = new LongValue(0);
         this.expression = expression;
-        this.isInitialized = false;
+        this.fieldMapping = fieldMapping;
+        init(dataRow);
     }
 
-    @Override
-    public void Accumulate(PrimitiveValue[] dataRow, HashMap<String, Integer> fieldMapping) throws SQLException
+    public  void init(PrimitiveValue[] dataRow) throws SQLException
     {
+        this.current = dataRow;
+        sum = new Addition(expression,new LongValue(0));
+        count = new LongValue(1);
 
-        evaluator = new ExpressionEvaluator(dataRow,fieldMapping);
-        if(!isInitialized)
-        {
-            sum = evaluator.eval(expression);
-            count = evaluator.eval(new Addition(count,new LongValue(1)));
-            isInitialized = true;
-        }
-        else
-        {
-            sum = evaluator.eval(new Addition(sum,evaluator.eval(expression)));
-            count = evaluator.eval(new Addition(count,new LongValue(1)));
+    }
 
-        }
+
+    @Override
+    public void Accumulate(PrimitiveValue[] dataRow) throws SQLException
+    {
+        this.current = dataRow;
+        sum.setLeftExpression(eval(sum));
+        sum.setRightExpression(eval(expression));
+        count = eval(new Addition(count, new LongValue(1)));
 
     }
 
     @Override
     public PrimitiveValue Fold() throws SQLException
     {
+        return eval(new Division(sum,count));
+    }
 
-        return evaluator.eval(new Division(sum,count));
+    @Override
+    public PrimitiveValue eval(Column column) throws SQLException
+    {
+        int position = fieldMapping.get(column.toString());
+        return current[position];
     }
 }

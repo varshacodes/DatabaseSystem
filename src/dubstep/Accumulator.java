@@ -6,6 +6,7 @@ import java.util.HashMap;
 
 public interface Accumulator
 {
-   void Accumulate(PrimitiveValue[]dataRow, HashMap<String,Integer> fieldMapping) throws SQLException;
+   void Accumulate(PrimitiveValue[]dataRow) throws SQLException;
    PrimitiveValue Fold()throws SQLException;
+   void init(PrimitiveValue[] dataRow) throws SQLException;
 }

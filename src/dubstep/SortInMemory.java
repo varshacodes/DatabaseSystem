@@ -72,7 +72,6 @@ public class SortInMemory implements RowTraverser
         }
         rowIterator.close();
 
-
     }
 
 
@@ -133,9 +132,9 @@ public class SortInMemory implements RowTraverser
     }
 
     @Override
-    public PrimitiveValue[] getcurrent()
+    public int getNoOfFields()
     {
-        return null;
+        return rowIterator.getNoOfFields();
     }
 
     public RowTraverser getChild()

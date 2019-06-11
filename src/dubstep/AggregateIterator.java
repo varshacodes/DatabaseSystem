@@ -8,10 +8,7 @@ import net.sf.jsqlparser.statement.select.SelectExpressionItem;
 import net.sf.jsqlparser.statement.select.SelectItem;
 import java.io.IOException;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 
 public class AggregateIterator implements RowTraverser
 {
@@ -25,12 +22,14 @@ public class AggregateIterator implements RowTraverser
     HashMap<String,Integer> groupByMapping;
     private PrimitiveValue[] current;
     RowTraverser sortedIterator;
-    Iterator<PrimitiveValue[]> resultIterator;
+    Iterator<ArrayList<PrimitiveValue>> resultIterator;
+    Iterator<PrimitiveValue[]> result;
     boolean isInMemory;
     HashMap<String,Integer> rowIteratorMapping;
     boolean isInitialized;
+    HashMap<ArrayList<PrimitiveValue>,Accumulator[]> resultmap;
 
-    AggregateIterator(RowTraverser rowIterator, List<SelectItem> selectItems,List<Column> groupBy,boolean inMemory)
+    AggregateIterator(RowTraverser rowIterator, List<SelectItem> selectItems,List<Column> groupBy,boolean inMemory)throws SQLException
     {
         this.rowIterator = rowIterator;
         this.isInMemory = inMemory;
@@ -49,8 +48,15 @@ public class AggregateIterator implements RowTraverser
         parseSelectItems(selectItems);
 
 
-
     }
+
+
+    @Override
+    public int getNoOfFields()
+    {
+        return selectFields.size() + aggregateFields.size();
+    }
+
 
     public void setRowIterator(RowTraverser rowIterator)
     {
@@ -82,27 +88,29 @@ public class AggregateIterator implements RowTraverser
 
         if(dataRow!=null)
         {
-            ArrayList<Accumulator> accumulators = getAccumulators();
-            ArrayList<PrimitiveValue[]> result = new ArrayList<PrimitiveValue[]>();
+            Accumulator[] accumulators = getAccumulators(dataRow);
+            dataRow = rowIterator.next();
 
             while (dataRow != null)
             {
                 for (Accumulator accumulator: accumulators)
                 {
-                    accumulator.Accumulate(dataRow,rowIteratorMapping);
+                    accumulator.Accumulate(dataRow);
                 }
                 dataRow = rowIterator.next();
             }
 
-            PrimitiveValue arr[] = new PrimitiveValue[accumulators.size()];
+             PrimitiveValue[] result = new PrimitiveValue[accumulators.length];
 
-            for(int i=0; i < accumulators.size(); i++)
+            for(int i=0; i < accumulators.length; i++)
             {
-                arr[i] = accumulators.get(i).Fold();
+                result[i] = accumulators[i].Fold();
 
             }
-            result.add(arr);
-            this.resultIterator = result.iterator();
+            ArrayList<PrimitiveValue[]> resultSet = new ArrayList<>();
+            resultSet.add(result);
+            this.result = resultSet.iterator();
+
         }
 
     }
@@ -114,37 +122,34 @@ public class AggregateIterator implements RowTraverser
         if(dataRow!=null)
         {
             int []groupByPos = getGroupByColumnPositions();
-            HashMap<ArrayList<PrimitiveValue>,ArrayList<Accumulator>> resultmap = new  HashMap<>();
+            this.resultmap = new  HashMap<>();
 
             while (dataRow != null)
             {
                 ArrayList<PrimitiveValue> groupByFields= getGroupByColumns(dataRow,groupByPos);
-                ArrayList<Accumulator> accumulators = resultmap.getOrDefault(groupByFields,getAccumulators());
-
-                for(Accumulator accumulator: accumulators)
+                if(resultmap.containsKey(groupByFields))
                 {
-                    accumulator.Accumulate(dataRow,rowIteratorMapping);
+                    Accumulator[] accumulators = resultmap.get(groupByFields);
+                    for(Accumulator accumulator: accumulators)
+                    {
+                        accumulator.Accumulate(dataRow);
+                    }
                 }
-
-                resultmap.put(groupByFields,accumulators);
-
+                else
+                {
+                    Accumulator[] accumulators = getAccumulators(dataRow);
+                    resultmap.put(groupByFields,accumulators);
+                }
                 dataRow = rowIterator.next();
             }
-            ArrayList<PrimitiveValue[]> result = getResult(resultmap);
-            this.resultIterator = result.iterator();
+            this.resultIterator = resultmap.keySet().iterator();
         }
 
     }
 
-    private ArrayList<PrimitiveValue[]> getResult(HashMap<ArrayList<PrimitiveValue>,ArrayList<Accumulator>> resultmap)throws SQLException
+    private PrimitiveValue[] getResult(ArrayList<PrimitiveValue> groupByColumns)throws SQLException
     {
-        Iterator<ArrayList<PrimitiveValue>> keyIterator = resultmap.keySet().iterator();
-        ArrayList<PrimitiveValue[]> dataRows = new ArrayList<>();
-
-        while(keyIterator.hasNext())
-        {
-            ArrayList<PrimitiveValue> groupByColumns = keyIterator.next();
-            ArrayList<Accumulator> accumulators = resultmap.get(groupByColumns);
+            Accumulator[] accumulators = resultmap.get(groupByColumns);
             PrimitiveValue[] dataRow = new PrimitiveValue[isSelectColumn.size()];
             int accumulator =0;
             int selectfield = 0;
@@ -156,18 +161,15 @@ public class AggregateIterator implements RowTraverser
                 }
                 else
                 {
-                    dataRow[i] = accumulators.get(accumulator++).Fold();
+                    dataRow[i] = accumulators[accumulator++].Fold();
                 }
             }
-            dataRows.add(dataRow);
-        }
-
-        return dataRows;
+        return dataRow;
     }
 
     private ArrayList<PrimitiveValue> getGroupByColumns(PrimitiveValue[] dataRow,int []positions)
     {
-        ArrayList<PrimitiveValue> groupBy = new ArrayList<PrimitiveValue>();
+        ArrayList<PrimitiveValue> groupBy = new ArrayList<PrimitiveValue>(positions.length);
 
         for(int i=0; i < positions.length; i++)
         {
@@ -189,26 +191,17 @@ public class AggregateIterator implements RowTraverser
     }
 
 
-    private ArrayList<Accumulator> getAccumulators()
+    private Accumulator[] getAccumulators(PrimitiveValue[] dataRow) throws SQLException
     {
-        ArrayList<Accumulator> accumulators = new ArrayList<Accumulator>();
+        Accumulator[] accumulators = new Accumulator[aggregateFields.size()];
 
         for(int i=0; i < aggregateFields.size(); i++)
         {
             AggregateField aggregateField = aggregateFields.get(i);
-            Expression expression = aggregateField.getExpression();
-
-            switch (aggregateField.getAggregate())
-            {
-                case AVG: accumulators.add(new AverageAccumulator(expression)); break;
-                case MAX: accumulators.add(new MaxAccumulator(expression)); break;
-                case MIN: accumulators.add(new MinAccumulator(expression)); break;
-                case COUNT: accumulators.add(new CountAccumulator(expression)); break;
-                case SUM: accumulators.add(new SumAccumulator(expression)); break;
-            }
+            accumulators[i] =aggregateField.getNewAccumulator(dataRow);
 
         }
-        return  accumulators;
+        return accumulators;
     }
     private void parseGroupBy(List<Column> groupByList)
     {
@@ -223,7 +216,7 @@ public class AggregateIterator implements RowTraverser
         }
     }
 
-    private void parseSelectItems(List<SelectItem> selectItems)
+    private void parseSelectItems(List<SelectItem> selectItems)throws SQLException
     {
         selectFields = new ArrayList<Field>();
         aggregateFields = new ArrayList<AggregateField>();
@@ -239,12 +232,12 @@ public class AggregateIterator implements RowTraverser
                 if (function.isAllColumns())
                 {
                     Aggregate aggregate = Aggregate.getAggregate(function.getName());
-                    aggregateFields.add(new AggregateField(aggregate,null));
+                    aggregateFields.add(new AggregateField(aggregate,null,null));
                     isSelectColumn.add(false);
                 } else {
                     Aggregate aggregate = Aggregate.getAggregate(function.getName());
                     Expression expression = function.getParameters().getExpressions().get(0);
-                    aggregateFields.add(new AggregateField(aggregate, expression));
+                    aggregateFields.add(new AggregateField(aggregate, expression,rowIteratorMapping));
                     isSelectColumn.add(false);
                 }
             }
@@ -274,16 +267,21 @@ public class AggregateIterator implements RowTraverser
         for(int i=0; i < selectItems.size(); i++)
         {
             SelectExpressionItem selectItem = (SelectExpressionItem) selectItems.get(i);
-            String Alias= selectItem.getAlias();
-
-            if(Alias == null)
+            if(selectItem.getAlias()!=null)
             {
-                Alias = selectItem.toString();
-
+                fieldMapping.put(selectItem.getAlias(),i);
             }
+            else {
+                Expression expression = ((SelectExpressionItem) selectItems.get(i)).getExpression();
 
-            fieldMapping.put(Alias,i);
+                if ((expression instanceof Column) && (((Column) expression).getTable() != null)) {
+                    fieldMapping.put(selectItem.toString(), i);
+                    fieldMapping.put(((Column) expression).getColumnName(), i);
+                }
+            }
+            fieldMapping.put(selectItem.toString(),i);
         }
+
     }
 
     @Override
@@ -294,12 +292,17 @@ public class AggregateIterator implements RowTraverser
             initialize();
             isInitialized = true;
         }
-        if(isInMemory || !isGroupBy)
+
+        if(!isGroupBy && result.hasNext())
+        {
+            return result.next();
+
+        }
+        else if(isInMemory && isGroupBy)
         {
             if(resultIterator !=null && resultIterator.hasNext())
             {
-                PrimitiveValue[] dataRow = resultIterator.next();
-                return dataRow;
+                return  getResult(resultIterator.next());
             }
         }
         else {
@@ -308,7 +311,6 @@ public class AggregateIterator implements RowTraverser
                      PrimitiveValue[] datarow = getGroupResult();
                      return datarow;
                  }
-
         }
 
         return null;
@@ -316,16 +318,16 @@ public class AggregateIterator implements RowTraverser
 
     private PrimitiveValue[] getGroupResult() throws SQLException,IOException,ClassNotFoundException
     {
-
         int groupByPos[] = getGroupByColumnPositions();
         ArrayList<PrimitiveValue> groupBy = getGroupByColumns(current,groupByPos);
-        ArrayList<Accumulator> accumulators = getAccumulators();
+        Accumulator[] accumulators = getAccumulators(current);
+        current = sortedIterator.next();
 
         while (current!=null && groupBy.equals(getGroupByColumns(current,groupByPos)))
         {
             for(Accumulator accumulator: accumulators)
             {
-                accumulator.Accumulate(current,rowIteratorMapping);
+                accumulator.Accumulate(current);
             }
             current = sortedIterator.next();
         }
@@ -333,7 +335,7 @@ public class AggregateIterator implements RowTraverser
         return getResult(groupBy,accumulators);
     }
 
-    private PrimitiveValue[] getResult(ArrayList<PrimitiveValue> groupBy, ArrayList<Accumulator> accumulators)throws SQLException
+    private PrimitiveValue[] getResult(ArrayList<PrimitiveValue> groupBy,Accumulator[] accumulators)throws SQLException
     {
         PrimitiveValue[] dataRow = new PrimitiveValue[isSelectColumn.size()];
         int accumulator =0;
@@ -346,7 +348,7 @@ public class AggregateIterator implements RowTraverser
                     dataRow[i] = groupBy.get(selectFields.get(selectfield++).getPosition());
             }
             else {
-                    dataRow[i] = accumulators.get(accumulator++).Fold();
+                    dataRow[i] = accumulators[accumulator++].Fold();
             }
         }
         return dataRow;
@@ -373,11 +375,6 @@ public class AggregateIterator implements RowTraverser
        rowIterator.close();
     }
 
-    @Override
-    public PrimitiveValue[] getcurrent()
-    {
-       return current;
-    }
 
     public RowTraverser getChild()
     {

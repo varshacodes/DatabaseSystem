@@ -1,8 +1,8 @@
 package dubstep;
-
 import net.sf.jsqlparser.expression.PrimitiveValue;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.GreaterThan;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.PrimitiveType;
 
 import java.sql.SQLException;
@@ -10,11 +10,12 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 
-public class DataExpressionComparator  implements Comparator<PrimitiveValue[]>
+public class DataExpressionComparator extends Evaluate implements Comparator<PrimitiveValue[]>
 {
 
     List<OrderByField> orderByFields;
     HashMap<String, Integer> fieldMapping;
+    PrimitiveValue[] current;
 
     public DataExpressionComparator(List<OrderByField> orderByFields, HashMap<String, Integer> fieldMapping)
     {
@@ -27,16 +28,16 @@ public class DataExpressionComparator  implements Comparator<PrimitiveValue[]>
     {
         try
         {
-            ExpressionEvaluator aEvaluator = new ExpressionEvaluator(RowA, fieldMapping);
-            ExpressionEvaluator bEvaluator = new ExpressionEvaluator(RowB, fieldMapping);
 
-            for (int i = 0; i < orderByFields.size(); i++) {
+            for (int i = 0; i < orderByFields.size(); i++)
+            {
                 OrderByField orderByField = orderByFields.get(i);
+                current = RowA;
+                PrimitiveValue a = eval(orderByField.getExpression());
+                current = RowB;
+                PrimitiveValue b = eval(orderByField.getExpression());
 
-                PrimitiveValue a = aEvaluator.eval(orderByField.getExpression());
-                PrimitiveValue b = bEvaluator.eval(orderByField.getExpression());
-
-                int compare = orderByField.isAscending() ? compare(a, b, aEvaluator) : -(compare(a, b, aEvaluator));
+                int compare = orderByField.isAscending() ? compare(a, b) : -(compare(a, b));
                 if(compare !=0) return compare;
 
             }
@@ -49,17 +50,17 @@ public class DataExpressionComparator  implements Comparator<PrimitiveValue[]>
 
     }
 
-    private int compare(PrimitiveValue a, PrimitiveValue b, ExpressionEvaluator evaluator) throws SQLException
+    private int compare(PrimitiveValue a, PrimitiveValue b) throws SQLException
     {
         if(a.getType() == PrimitiveType.STRING)
         {
             return a.toRawString().compareTo(b.toRawString());
         }
-        if(evaluator.eval(new EqualsTo(a,b)).toBool())
+        if(eval(new EqualsTo(a,b)).toBool())
         {
             return 0;
         }
-        else if(evaluator.eval(new GreaterThan(a,b)).toBool())
+        else if(eval(new GreaterThan(a,b)).toBool())
         {
             return 1;
         }
@@ -68,4 +69,10 @@ public class DataExpressionComparator  implements Comparator<PrimitiveValue[]>
         }
     }
 
+    @Override
+    public PrimitiveValue eval(Column column) throws SQLException
+    {
+        int position = fieldMapping.get(column.toString());
+        return current[position];
+    }
 }

@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 
 public class OrderByIterator implements RowTraverser {
@@ -31,6 +30,12 @@ public class OrderByIterator implements RowTraverser {
         parseOrderBy(orderByFields);
 
 
+    }
+
+    @Override
+    public int getNoOfFields()
+    {
+        return rowIterator.getNoOfFields();
     }
 
     public void setRowIterator(RowTraverser rowIterator)
@@ -109,10 +114,6 @@ public class OrderByIterator implements RowTraverser {
         sortedIterator.close();
     }
 
-    @Override
-    public PrimitiveValue[] getcurrent() {
-        return new PrimitiveValue[0];
-    }
 
 
 }

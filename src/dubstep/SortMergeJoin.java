@@ -1,8 +1,8 @@
 package dubstep;
-
 import net.sf.jsqlparser.expression.PrimitiveValue;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.GreaterThan;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.PrimitiveType;
 import java.io.IOException;
 import java.sql.SQLException;
@@ -11,7 +11,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 
-public class SortMergeJoin implements RowTraverser
+public class SortMergeJoin extends Evaluate implements RowTraverser
 {
     RowTraverser leftIterator;
     RowTraverser rightIterator;
@@ -21,6 +21,7 @@ public class SortMergeJoin implements RowTraverser
     int leftIndex;
     int rightIndex;
     Iterator<PrimitiveValue[]> resultSet;
+    boolean isInitialized = false;
 
 
     public SortMergeJoin(RowTraverser leftIterator, RowTraverser rightIterator, List<Field> left, List<Field> right) throws  IOException , SQLException, ClassNotFoundException
@@ -29,11 +30,20 @@ public class SortMergeJoin implements RowTraverser
         this.rightIterator = new SortOnDisk(rightIterator,right,"Sort_Right");
         this.leftIndex = left.get(0).getPosition();
         this.rightIndex = right.get(0).getPosition();
-        this.leftDataRow = leftIterator !=null ? this.leftIterator.next(): null;
-        this.rightDataRow = rightIterator !=null ? this.rightIterator.next(): null;
+        this.isInitialized = false;
         setFieldPositionMapping();
     }
 
+    @Override
+    public int getNoOfFields() {
+        return leftIterator.getNoOfFields() + rightIterator.getNoOfFields();
+    }
+
+    private void initialize()throws  IOException , SQLException, ClassNotFoundException
+    {
+        this.leftDataRow = leftIterator !=null ? this.leftIterator.next(): null;
+        this.rightDataRow = rightIterator !=null ? this.rightIterator.next(): null;
+    }
     private void setFieldPositionMapping()
     {
         FieldPositionMapping = new HashMap<String, Integer>();
@@ -64,16 +74,15 @@ public class SortMergeJoin implements RowTraverser
 
     private int compare(PrimitiveValue a, PrimitiveValue b) throws SQLException
     {
-        ExpressionEvaluator evaluator = new ExpressionEvaluator(leftDataRow,null);
         if(a.getType() == PrimitiveType.STRING)
         {
             return a.toRawString().compareTo(b.toRawString());
         }
-        if(evaluator.eval(new EqualsTo(a,b)).toBool())
+        if(eval(new EqualsTo(a,b)).toBool())
         {
             return 0;
         }
-        else if(evaluator.eval(new GreaterThan(a,b)).toBool())
+        else if(eval(new GreaterThan(a,b)).toBool())
         {
             return 1;
         }
@@ -105,6 +114,11 @@ public class SortMergeJoin implements RowTraverser
     @Override
     public PrimitiveValue[] next() throws SQLException, IOException, ClassNotFoundException
     {
+         if(!isInitialized)
+         {
+             isInitialized= true;
+             initialize();
+         }
          if(resultSet !=null && resultSet.hasNext())
          {
              return resultSet.next();
@@ -179,22 +193,32 @@ public class SortMergeJoin implements RowTraverser
 
     private PrimitiveValue findMatch(PrimitiveValue[] leftDataRow, PrimitiveValue[] rightDataRow)throws SQLException,IOException, ClassNotFoundException
     {
-        if (leftDataRow!= null && rightDataRow !=null)
-        {
-            int compare = compare(leftDataRow[leftIndex],rightDataRow[rightIndex]);
+        int compare = Integer.MAX_VALUE;
 
-            if(compare ==0)
+        while (compare !=0)
+        {
+            if (leftDataRow!= null && rightDataRow !=null)
             {
-              return leftDataRow[leftIndex];
-            }
-            else if(compare >0)
-            {
-                return findMatch(leftIterator.next(),rightDataRow);
+                compare = compare(leftDataRow[leftIndex],rightDataRow[rightIndex]);
+
+                if(compare ==0)
+                {
+                    return leftDataRow[leftIndex];
+                }
+                else if(compare >0)
+                {
+                    leftDataRow = leftIterator.next();
+                }
+                else
+                {
+                    rightDataRow = rightIterator.next();
+                }
             }
             else
             {
-                return findMatch(leftDataRow,rightIterator.next());
+                return null;
             }
+
         }
 
         return null;
@@ -206,6 +230,7 @@ public class SortMergeJoin implements RowTraverser
     {
         leftIterator.reset();
         rightIterator.reset();
+        isInitialized = false;
 
     }
 
@@ -221,10 +246,11 @@ public class SortMergeJoin implements RowTraverser
         rightIterator.close();
     }
 
+
+
     @Override
-    public PrimitiveValue[] getcurrent() {
-        return new PrimitiveValue[0];
+    public PrimitiveValue eval(Column column) throws SQLException
+    {
+        return null;
     }
-
-
 }

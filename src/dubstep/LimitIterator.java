@@ -15,13 +15,20 @@ public class LimitIterator implements RowTraverser
     PrimitiveValue[] current;
 
 
-    public LimitIterator(RowTraverser rowIterator,long limit)
+
+    public LimitIterator(RowTraverser rowIterator, long limit)
     {
         this.rowIterator = rowIterator;
         this.limit = limit;
         this.fieldPositionMapping = rowIterator.getFieldPositionMapping();
         this.count = 1;
 
+    }
+
+    @Override
+    public int getNoOfFields()
+    {
+        return rowIterator.getNoOfFields();
     }
 
     public void setRowIterator(RowTraverser rowIterator)
@@ -62,10 +69,7 @@ public class LimitIterator implements RowTraverser
         rowIterator.close();
     }
 
-    @Override
-    public PrimitiveValue[] getcurrent() {
-        return new PrimitiveValue[0];
-    }
+
 
     public RowTraverser getChild()
     {

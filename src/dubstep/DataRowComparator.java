@@ -3,18 +3,15 @@ package dubstep;
 import net.sf.jsqlparser.expression.PrimitiveValue;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.GreaterThan;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.PrimitiveType;
-
-import java.io.Serializable;
 import java.sql.SQLException;
 import java.util.Comparator;
 import java.util.List;
 
-public class DataRowComparator implements Comparator<PrimitiveValue[]>, Serializable
+public class DataRowComparator extends Evaluate implements Comparator<PrimitiveValue[]>
 {
     List<Field> sortFields;
-    ExpressionEvaluator evaluator;
-    boolean []isDescending;
 
     public DataRowComparator(List<Field> sortFields)
     {
@@ -25,7 +22,6 @@ public class DataRowComparator implements Comparator<PrimitiveValue[]>, Serializ
     public int compare(PrimitiveValue[] rowA, PrimitiveValue[] rowB)
     {
         try {
-            this.evaluator = new ExpressionEvaluator(rowA,null);
             for (Field sortField : sortFields)
             {
                 int compare = compare(rowA[sortField.getPosition()], rowB[sortField.getPosition()]);
@@ -52,16 +48,22 @@ public class DataRowComparator implements Comparator<PrimitiveValue[]>, Serializ
         {
             return a.toRawString().compareTo(b.toRawString());
         }
-        if(evaluator.eval(new EqualsTo(a,b)).toBool())
+        if(eval(new EqualsTo(a,b)).toBool())
         {
             return 0;
         }
-        else if(evaluator.eval(new GreaterThan(a,b)).toBool())
+        else if(eval(new GreaterThan(a,b)).toBool())
         {
             return 1;
         }
         else {
              return -1;
         }
+    }
+
+    @Override
+    public PrimitiveValue eval(Column column) throws SQLException
+    {
+        return null;
     }
 }

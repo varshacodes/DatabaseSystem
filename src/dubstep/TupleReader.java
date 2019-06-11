@@ -1,8 +1,12 @@
 package dubstep;
-import net.sf.jsqlparser.expression.*;
-
+import net.sf.jsqlparser.expression.DateValue;
+import net.sf.jsqlparser.expression.DoubleValue;
+import net.sf.jsqlparser.expression.LongValue;
+import net.sf.jsqlparser.expression.PrimitiveValue;
+import net.sf.jsqlparser.expression.StringValue;
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.HashMap;
@@ -22,44 +26,58 @@ public class TupleReader implements RowTraverser
         this.fieldTypes = fieldTypes;
         this.fieldMapping = fieldMapping;
     }
-
-    public TupleReader(String TableName, HashMap<String, Integer> fieldMapping)throws IOException
+    public TupleReader(String TableName, boolean hasTableAlias, String TableAlias)throws IOException
     {
-        this.FileName = Table.getDirectory()+ TableName+ ".dat";
+        Table Table = TableInformation.getTable(TableName);
+        this.FileName = Table.getFolderName() + Table.getTableName()+".dat";
+        this.fieldMapping = hasTableAlias ? Table.getFieldMappingwithAlias(TableAlias): Table.getFieldPostionMapping();
+        this.fieldTypes = Table.getFieldTypes();
         this.reader = new DataInputStream(new BufferedInputStream(new FileInputStream(FileName)));
-        this.fieldMapping = fieldMapping;
-        this.fieldTypes = TableInformation.getFieldTypes(TableName);
+
     }
 
     @Override
-    public PrimitiveValue[] next()
+    public int getNoOfFields()
+    {
+        return fieldTypes.length;
+    }
+
+    @Override
+    public PrimitiveValue[] next() throws IOException
     {
         PrimitiveValue[] tuple = reader!=null ? readerTuple(): null;
         return tuple;
     }
 
-    private PrimitiveValue[] readerTuple()
+    private PrimitiveValue[] readerTuple() throws IOException
     {
         try
         {
             PrimitiveValue[] tuple = new PrimitiveValue[fieldTypes.length];
 
-            for (int i=0; i < fieldTypes.length; i++)
+            for (int i = 0; i < fieldTypes.length; i++)
             {
                 switch (fieldTypes[i])
                 {
-                    case DATE: tuple[i] = new DateValue(reader.readUTF()); break;
-                    case STRING: tuple[i] = new StringValue(reader.readUTF()); break;
-                    case INT: tuple[i] = new LongValue(reader.readLong()); break;
-                    case DOUBLE: tuple[i] = new DoubleValue(reader.readDouble()); break;
-
+                    case DATE:
+                        tuple[i] = new DateValue(reader.readUTF());
+                        break;
+                    case STRING:
+                        tuple[i] = new StringValue(reader.readUTF());
+                        break;
+                    case INT:
+                        tuple[i] = new LongValue(reader.readLong());
+                        break;
+                    case DOUBLE:
+                        tuple[i] = new DoubleValue(reader.readDouble());
+                        break;
                 }
-            }
 
+            }
             return tuple;
 
         }
-        catch (Exception e)
+        catch (EOFException e)
         {
             return null;
         }
@@ -82,11 +100,8 @@ public class TupleReader implements RowTraverser
     public void close() throws IOException
     {
         reader.close();
+
     }
 
-    @Override
-    public PrimitiveValue[] getcurrent()
-    {
-        return new PrimitiveValue[0];
-    }
+
 }

@@ -6,8 +6,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.HashMap;
-import java.util.List;
-import java.io.File;
+
 
 public class RowIterator implements RowTraverser
 {
@@ -18,33 +17,21 @@ public class RowIterator implements RowTraverser
     PrimitiveValue[] current;
     FieldType []FieldTypes;
 
-    public RowIterator(String TableName) throws FileNotFoundException
+
+    public RowIterator(String TableName, HashMap<String,Integer> FieldPositionMapping, FieldType[] fieldTypes) throws FileNotFoundException
     {
         this.TableName = TableName;
         this.csvFile = "data/" + this.TableName + ".csv";
-        this.reader = new BufferedReader(new FileReader(csvFile));
-        this.FieldTypes = TableInformation.getFieldTypes(TableName);
-        this.FieldPositionMapping = TableInformation.getFieldPostionMapping(TableName);
-    }
-
-    public RowIterator(String TableName,  HashMap<String,Integer> FieldPositionMapping) throws FileNotFoundException
-    {
-        this.TableName = TableName;
-        this.csvFile = "data/" + this.TableName + ".csv";
-        this.reader = new BufferedReader(new FileReader(csvFile));
-        this.FieldPositionMapping = FieldPositionMapping;
-        this.FieldTypes = TableInformation.getFieldTypes(TableName);
-
-    }
-
-    public RowIterator(String FileName, HashMap<String,Integer> FieldPositionMapping, FieldType[] fieldTypes) throws FileNotFoundException
-    {
-        this.csvFile = FileName;
         this.reader = new BufferedReader(new FileReader(csvFile));
         this.FieldPositionMapping = FieldPositionMapping;
         this.FieldTypes= fieldTypes;
     }
 
+    @Override
+    public int getNoOfFields()
+    {
+        return FieldTypes.length;
+    }
 
     public void reset() throws IOException
     {
@@ -67,9 +54,7 @@ public class RowIterator implements RowTraverser
 
     public PrimitiveValue[] next() throws IOException, SQLException
     {
-        if (reader != null)
-        {
-            String Line = reader.readLine();
+            String Line = nextLine();
 
             if (Line != null)
             {
@@ -82,6 +67,20 @@ public class RowIterator implements RowTraverser
                 }
 
                 return dataRow;
+            }
+
+        return  null;
+    }
+
+    public String nextLine() throws IOException
+    {
+        if (reader != null)
+        {
+            String Line = reader.readLine();
+
+            if (Line != null)
+            {
+                return Line;
             }
         }
 

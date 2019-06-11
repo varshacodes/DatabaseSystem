@@ -25,6 +25,12 @@ public class JoinIterator implements RowTraverser
 
     }
 
+    @Override
+    public int getNoOfFields()
+    {
+        return leftIterator.getNoOfFields() + rightIterator.getNoOfFields();
+    }
+
     private void initialize()throws IOException, SQLException, ClassNotFoundException
     {
         this.leftDataRow = leftIterator.next();
@@ -85,7 +91,6 @@ public class JoinIterator implements RowTraverser
              if (rightDataRow != null )
              {
                  joinData = mergeValues(this.leftDataRow, rightDataRow);
-                 current = joinData;
                  return joinData;
 
              }
@@ -96,21 +101,14 @@ public class JoinIterator implements RowTraverser
                 {
                     rightIterator.reset();
                     joinData = mergeValues(this.leftDataRow,rightIterator.next());
-                    current = joinData;
                     return joinData;
                 }
              }
         }
 
-        current = null;
         return null;
     }
 
-    @Override
-    public PrimitiveValue[] getcurrent()
-    {
-        return current;
-    }
 
     private PrimitiveValue[] mergeValues(PrimitiveValue[] leftData, PrimitiveValue[] rightData)
     {

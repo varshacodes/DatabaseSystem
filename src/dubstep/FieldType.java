@@ -32,6 +32,13 @@ public enum FieldType
         }
     }
 
+    public int getFieldType()
+    {
+        return fieldType;
+    }
+
+
+
     public static PrimitiveValue getPrimitiveValue(String value, FieldType fieldType)
     {
         switch (fieldType)
@@ -41,6 +48,20 @@ public enum FieldType
             case DATE: return new DateValue(value);
             case DOUBLE: return new DoubleValue(value);
             default: return new StringValue(value);
+        }
+
+    }
+
+    public static FieldType getFieldType(int fieldType)
+    {
+        switch (fieldType)
+        {
+            case 101: return FieldType.STRING;
+            case 102: return FieldType.DATE;
+            case 103: return FieldType.INT;
+            case 104: return FieldType.DOUBLE;
+            default: return FieldType.STRING;
+
         }
 
     }

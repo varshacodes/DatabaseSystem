@@ -1,20 +1,19 @@
 package dubstep;
-
-import net.sf.jsqlparser.eval.Eval;
 import net.sf.jsqlparser.expression.Expression;
-import net.sf.jsqlparser.expression.PrimitiveValue;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.schema.Column;
-import java.util.Arrays;
 import java.io.IOException;
 import java.sql.SQLException;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 
-public class Optimizer extends Eval
+public class Optimizer
 {
 
     RowTraverser Traverser;
@@ -24,7 +23,7 @@ public class Optimizer extends Eval
     List<Expression> Left;
     List<Expression> Right;
     WhereClause Join;
-    List<Column> columns;
+    Set<String> columns;
 
     public Optimizer(RowTraverser Traverser, boolean isInMemory)throws IOException,SQLException,ClassNotFoundException
     {
@@ -40,6 +39,14 @@ public class Optimizer extends Eval
             return Traverser;
         }
         else  if(Traverser instanceof TupleReader)
+        {
+            return Traverser;
+        }
+        else  if(Traverser instanceof TupleTraverser)
+        {
+            return Traverser;
+        }
+        else if(Traverser instanceof SelectTraverser)
         {
             return Traverser;
         }
@@ -71,10 +78,16 @@ public class Optimizer extends Eval
         else if(Traverser instanceof FilterIterator)
         {
             RowTraverser child = ((FilterIterator) Traverser).getChild();
-
+//            if(child instanceof FilterIterator)
+//            {
+//                RowTraverser filterChild = ((FilterIterator) child).getChild();
+//                Expression childCondition =((FilterIterator) child).getWhereCondition();
+//                Expression filterCondition =  new AndExpression(((FilterIterator) Traverser).getWhereCondition(),childCondition);
+//                Traverser = new FilterIterator(filterChild,filterCondition);
+//            }
             if(child instanceof JoinIterator)
             {
-                ArrayList<Expression> whereClauses = splitWhereClauses(((FilterIterator) Traverser).getWhereCondition(),new ArrayList<Expression>());
+                List<Expression> whereClauses = splitWhereClauses(((FilterIterator) Traverser).getWhereCondition(),new ArrayList<Expression>());
                 RowTraverser left = ((JoinIterator) child).getLeftChild();
                 RowTraverser right = ((JoinIterator) child).getRightChild();
                 Categorize(whereClauses,left.getFieldPositionMapping(),right.getFieldPositionMapping());
@@ -128,7 +141,7 @@ public class Optimizer extends Eval
     }
 
 
-    private void Categorize(ArrayList<Expression> whereClauses, HashMap<String, Integer> leftMapping, HashMap<String, Integer> rightMapping)throws SQLException
+    private void Categorize(List<Expression> whereClauses, HashMap<String, Integer> leftMapping, HashMap<String, Integer> rightMapping)throws SQLException
     {
         conditionMapping = new HashMap<ConditionType,Boolean>();
 
@@ -216,7 +229,7 @@ public class Optimizer extends Eval
         }
     }
 
-    private void categorizeCondition(Expression whereClause, List<Column> columns, HashMap<String, Integer> leftMapping, HashMap<String, Integer> rightMapping)
+    private void categorizeCondition(Expression whereClause, Set<String> columns, HashMap<String, Integer> leftMapping, HashMap<String, Integer> rightMapping)
     {
         boolean isAllLeft = isAllPresent(columns,leftMapping);
         boolean isAllRight = isAllPresent(columns,rightMapping);
@@ -263,11 +276,11 @@ public class Optimizer extends Eval
         }
     }
 
-    private boolean isAllPresent(List<Column> columns, HashMap<String, Integer> leftMapping)
+    private boolean isAllPresent(Set<String> columns, HashMap<String, Integer> leftMapping)
     {
-        for(Column column: columns)
+        for(String column: columns)
         {
-            if(!leftMapping.containsKey(column.toString()))
+            if(!leftMapping.containsKey(column))
             {
                 return false;
             }
@@ -313,20 +326,15 @@ public class Optimizer extends Eval
 
     }
 
-    public List<Column> getColumns(Expression expression) throws SQLException
+    public Set<String> getColumns(Expression expression) throws SQLException
     {
-        columns = new ArrayList<>();
-        eval(expression);
+        columns = new HashSet<>();
+        Utility.eval(expression,columns);
         return columns;
 
     }
 
-    @Override
-    public PrimitiveValue eval(Column column) throws SQLException
-    {
-        columns.add(column);
-        return null;
-    }
+
 
     public Expression getWhereCondition(List<Expression> conditions)
     {
@@ -346,6 +354,7 @@ public class Optimizer extends Eval
             return expression;
         }
     }
+
 
 
 

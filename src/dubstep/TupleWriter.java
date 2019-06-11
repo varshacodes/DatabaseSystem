@@ -21,24 +21,44 @@ public class TupleWriter
         this.fieldTypes = fieldTypes;
     }
 
-    public TupleWriter(Table table) throws IOException
+    public TupleWriter(Table Table) throws FileNotFoundException
     {
-        this.writer = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(table.getFileName())));
-        this.fileName = table.getFileName();
-        this.fieldTypes = TableInformation.getFieldTypes(table.getTableName());
-
+        this.fileName = Table.getFolderName()+Table.getTableName() +".dat";
+        this.writer = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(fileName)));
+        this.fieldTypes = Table.getFieldTypes();
     }
 
-    private void writeTuples(RowTraverser rowTraverser)throws SQLException,IOException,ClassNotFoundException
+
+
+    private Long writeTuples(RowIterator rowTraverser)throws SQLException,IOException
     {
-        PrimitiveValue[] dataRow = rowTraverser !=null ? rowTraverser.next(): null;
+        String dataRow = rowTraverser !=null ? rowTraverser.nextLine(): null;
+
+        Long rows = dataRow !=null ? new Long(0): new Long(-1);
 
         while (dataRow != null)
         {
+            rows = rows + 1;
             writeTuple(dataRow);
-            dataRow = rowTraverser.next();
+            dataRow = rowTraverser.nextLine();
         }
 
+        return rows;
+    }
+
+    public void writeTuple(String Line) throws IOException
+    {
+        String[] datarow = Line.split("\\|");
+        for(int i=0; i < fieldTypes.length; i++)
+        {
+            switch (fieldTypes[i])
+            {
+                case INT: writer.writeLong(new Long(datarow[i])); break;
+                case DATE: writer.writeUTF(datarow[i]); break;
+                case STRING: writer.writeUTF(datarow[i]); break;
+                case DOUBLE: writer.writeDouble(new Double(datarow[i])); break;
+            }
+        }
     }
     public void writeTuple(PrimitiveValue[] datarow) throws PrimitiveValue.InvalidPrimitive,IOException
     {
@@ -56,6 +76,7 @@ public class TupleWriter
 
     public void writeTuples(List<PrimitiveValue[]> Tuples) throws PrimitiveValue.InvalidPrimitive,IOException
     {
+
         for(PrimitiveValue[] tuple: Tuples)
         {
             writeTuple(tuple);
@@ -67,10 +88,5 @@ public class TupleWriter
         writer.close();
     }
 
-    public void writeTable(Table table) throws SQLException,IOException,ClassNotFoundException
-    {
-        String csvFileName = "data/" + table.getTableName() + ".csv";
-        RowTraverser rowTraverser = new RowIterator(csvFileName,TableInformation.getFieldPostionMapping(table.getTableName()),fieldTypes);
-        writeTuples(rowTraverser);
-    }
+
 }

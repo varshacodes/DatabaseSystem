@@ -1,17 +1,18 @@
 package dubstep;
 
-import net.sf.jsqlparser.expression.Function;
+import net.sf.jsqlparser.expression.*;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.select.*;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import net.sf.jsqlparser.expression.Expression;
 import java.io.IOException;
+import java.util.Set;
+import java.util.HashSet;
 
 
-public class SelectProcessor
+public class SelectProcessor extends Evaluate
 {
     public static final int FROM_TABLE = 201;
     public static final int FROM_JOIN = 202;
@@ -44,15 +45,26 @@ public class SelectProcessor
     String TableName;
     String LeftTableAlias;
     String queryAlias;
+    Set<String> selectedColumns;
+    boolean isOptimizable;
 
+    public boolean isOptimizable()
+    {
+        return isOptimizable;
+    }
 
+    public boolean isHasJoins()
+    {
+        return hasJoins;
+    }
 
-    public SelectProcessor(SelectBody selectBody,boolean inMemory, String queryAlias) throws SQLException,ClassNotFoundException,IOException
+    public SelectProcessor(SelectBody selectBody, boolean inMemory, String queryAlias) throws SQLException,ClassNotFoundException,IOException
     {
        this.selectBody = selectBody;
        this.inMemory = inMemory;
        this.hasQueryAlias = queryAlias!=null ? true : false;
        this.queryAlias = queryAlias;
+       this.isOptimizable = false;
        parseSelectBody();
     }
 
@@ -62,13 +74,17 @@ public class SelectProcessor
         if(selectBody instanceof PlainSelect)
         {
             selectType = PLAIN_SELECT;
-            parseFromItem();
-            parseSelectItem();
             parseWhereCondition();
-            parseGroupBy();
-            parseHavingCondition();
             parseOrderBy();
+            parseGroupBy();
+            parseSelectItem();
+            parseFromItem();
+            parseHavingCondition();
             parseLimitBy();
+            if(this.hasWhereCondition && this.hasJoins)
+            {
+                this.isOptimizable = true;
+            }
 
         }
         else if(selectBody instanceof Union)
@@ -129,7 +145,6 @@ public class SelectProcessor
             RowTraverser left = parseFromItem(fromItem);
             RowTraverser right = parseFromItem(joins.get(0).getRightItem());
             this.JoinIterator = new JoinIterator(left,right);
-
             for(int i=1; i < joins.size(); i++)
             {
                 fromItem = joins.get(i).getRightItem();
@@ -156,6 +171,11 @@ public class SelectProcessor
 
     }
 
+    public boolean isHasWhereCondition()
+    {
+        return hasWhereCondition;
+    }
+
     private RowTraverser parseFromItem(FromItem fromItem) throws SQLException,ClassNotFoundException,IOException
     {
         RowTraverser rowTraverser = null;
@@ -165,14 +185,7 @@ public class SelectProcessor
             TableName = ((Table)fromItem).getWholeTableName();
             hasTableAlias = fromItem.getAlias() != null? true: false;
             LeftTableAlias = hasTableAlias ? fromItem.getAlias(): null;
-            if(hasTableAlias)
-            {
-                rowTraverser = new TupleReader(TableName,TableInformation.getFieldMappingwithAlias(TableName,LeftTableAlias));
-            }
-            else
-            {
-                rowTraverser = new TupleReader(TableName,TableInformation.getFieldPostionMapping(TableName));
-            }
+            rowTraverser = getTableTraverser(TableName,isAllcolumns,hasTableAlias,LeftTableAlias,selectedColumns);
 
         }
         else if(fromItem instanceof SubSelect)
@@ -180,6 +193,10 @@ public class SelectProcessor
             SelectBody subSelectBody = ((SubSelect) fromItem).getSelectBody();
             SelectProcessor subSelectProcessor = new SelectProcessor(subSelectBody,inMemory,fromItem.getAlias());
             rowTraverser = subSelectProcessor.processQuery();
+            if(subSelectProcessor.isHasJoins()&&subSelectProcessor.isHasWhereCondition())
+            {
+                isOptimizable = true;
+            }
         }
 
         return rowTraverser;
@@ -195,27 +212,49 @@ public class SelectProcessor
         }
     }
 
-    private void parseSelectItem()
+    private void parseSelectItem()throws SQLException
     {
         selectItems = ((PlainSelect)selectBody).getSelectItems();
-        SelectItem selectItem = selectItems.iterator().next();
+        SelectItem selectItem = selectItems.get(0);
 
         if((selectItem instanceof AllColumns)|| (selectItem instanceof  AllTableColumns))
         {
             isAllcolumns = true;
+
         }
         else {
-
-                isAllcolumns = false;
-                Expression expression = ((SelectExpressionItem)selectItem).getExpression();
-                if(expression instanceof Function)
-                {
-                    isAggregate = true;
-                    isAllcolumns = true;
-                }
+                 Expression expression = ((SelectExpressionItem)selectItem).getExpression();
+                 if(expression instanceof Function)
+                 {
+                     isAggregate = true;
+                 }
+                 isAllcolumns = false;
+                 selectedColumns = new HashSet<String>();
+                 setSelectedColumns();
         }
 
+
+
     }
+
+    private void setSelectedColumns()throws SQLException
+    {
+        selectItems = ((PlainSelect)selectBody).getSelectItems();
+
+        for(int i=0; i< selectItems.size(); i++)
+        {
+            SelectItem selectItem = selectItems.get(i);
+            Expression expression = ((SelectExpressionItem)selectItem).getExpression();
+            Utility.eval(expression,selectedColumns);
+        }
+        if(hasWhereCondition)
+        {
+            Utility.eval(whereCondition,selectedColumns);
+        }
+
+
+    }
+
     private void parseWhereCondition()
     {
 
@@ -250,21 +289,14 @@ public class SelectProcessor
     {
         ProjectIterator projectIterator = null;
 
+
+
         switch (FromType)
         {
             case FROM_TABLE:
 
-                RowTraverser rowIterator = null;
+                RowTraverser rowIterator = getTableTraverser(TableName,isAllcolumns,hasTableAlias,LeftTableAlias,selectedColumns);
 
-                if(hasTableAlias)
-                {
-                    rowIterator = new TupleReader(TableName,TableInformation.getFieldMappingwithAlias(TableName,LeftTableAlias));
-                }
-                else
-                {
-                    rowIterator = new TupleReader(TableName,TableInformation.getFieldPostionMapping(TableName));
-
-                }
 
                 if(hasWhereCondition)
                 {
@@ -273,7 +305,7 @@ public class SelectProcessor
 
                 if(isAggregate || hasGroupBy)
                 {
-                    rowIterator = new AggregateIterator(rowIterator,selectItems,groupByColumns,inMemory);
+                    rowIterator = new ProjectIterator( new AggregateIterator(rowIterator,selectItems,groupByColumns,inMemory),selectItems,true);
 
                 }
                 if(hasHavingCondition)
@@ -378,4 +410,43 @@ public class SelectProcessor
 
         return unionIterator;
     }
+
+    @Override
+    public PrimitiveValue eval(Column column) throws SQLException
+    {
+
+            selectedColumns.add(column.toString());
+            return null;
+
+    }
+
+    private RowTraverser getTableTraverser(String TableName,boolean isAllcolumns,boolean hasTableAlias,String LeftTableAlias, Set<String> selectedColumns)throws  IOException
+    {
+        RowTraverser rowIterator = null;
+
+        dubstep.Table table = TableInformation.getTable(TableName);
+
+        if(isAllcolumns)
+        {
+            rowIterator = new TupleTraverser(TableName,hasTableAlias,LeftTableAlias);
+
+        }
+        else
+        {
+            if(table.hasUpdateColumns())
+            {
+                table.addUpdateColumns(selectedColumns);
+            }
+            rowIterator = new SelectTraverser(TableName,selectedColumns,hasTableAlias,LeftTableAlias);
+
+        }
+
+        if(table.hasUpdates())
+        {
+            rowIterator = table.getUpdatedIterator(rowIterator,isAllcolumns);
+        }
+
+        return rowIterator;
+    }
+
 }

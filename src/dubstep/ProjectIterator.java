@@ -1,6 +1,7 @@
 package dubstep;
-
+import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.expression.PrimitiveValue;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.SelectExpressionItem;
 import net.sf.jsqlparser.statement.select.SelectItem;
 import java.util.List;
@@ -9,7 +10,7 @@ import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Iterator;
 
-public class ProjectIterator implements RowTraverser
+public class ProjectIterator extends Evaluate implements RowTraverser
 {
     RowTraverser DataRowIterator;
     HashMap<String, Integer> PositionFieldMapping;
@@ -18,7 +19,9 @@ public class ProjectIterator implements RowTraverser
     PrimitiveValue[] current;
     boolean isAllColumns;
 
-    ProjectIterator(RowTraverser DataRowIterator,List<SelectItem> selectItemList, boolean isAllColumns)
+
+
+    ProjectIterator(RowTraverser DataRowIterator, List<SelectItem> selectItemList, boolean isAllColumns)
     {
         this.DataRowIterator = DataRowIterator;
         this.PositionFieldMapping = DataRowIterator.getFieldPositionMapping();
@@ -31,6 +34,11 @@ public class ProjectIterator implements RowTraverser
         setprojectionMapping();
 
     }
+    @Override
+    public int getNoOfFields()
+    {
+        return selectItemList.size();
+    }
     private void setprojectionMapping()
     {
         if(isAllColumns)
@@ -40,11 +48,12 @@ public class ProjectIterator implements RowTraverser
         else {
              this.projectionMapping = new HashMap<>();
 
-            for (int i = 0; i < selectItemList.size(); i++) {
+            for (int i = 0; i < selectItemList.size(); i++)
+            {
                 SelectExpressionItem selectItem = (SelectExpressionItem) selectItemList.get(i);
                 String Alias = selectItem.getAlias();
-
-                if (Alias == null) {
+                if(Alias == null)
+                {
                     Alias = selectItem.toString();
 
                 }
@@ -73,26 +82,35 @@ public class ProjectIterator implements RowTraverser
     {
         if(isAllColumns)
         {
-            PrimitiveValue[] dataRow = DataRowIterator !=null ? DataRowIterator.next() : null;
+            current = DataRowIterator !=null ? DataRowIterator.next() : null;
 
-            if (dataRow != null)
+            if (current != null)
             {
-                return  dataRow;
+                return  current;
             }
         }
         else
         {
-            PrimitiveValue[] dataRow = DataRowIterator !=null ? DataRowIterator.next() : null;
-            if(dataRow != null)
+            current = DataRowIterator !=null ? DataRowIterator.next() : null;
+
+            if(current != null)
             {
                 PrimitiveValue[] ProjectRow = new PrimitiveValue[selectItemList.size()];
 
                 for(int i=0; i< selectItemList.size(); i++)
                 {
                     SelectExpressionItem selectItem = (SelectExpressionItem) selectItemList.get(i);
-                    ExpressionEvaluator evaluator = new ExpressionEvaluator(dataRow, PositionFieldMapping);
-                    PrimitiveValue value = evaluator.eval(selectItem.getExpression());
-                    ProjectRow[i] = value;
+
+                    if(selectItem.getExpression() instanceof Function)
+                    {
+                        int position = PositionFieldMapping.get(selectItem.toString());
+                        ProjectRow[i] =current[position];
+                    }
+                    else
+                    {
+                        ProjectRow[i] = eval(selectItem.getExpression());
+
+                    }
                 }
                 return  ProjectRow;
 
@@ -102,11 +120,7 @@ public class ProjectIterator implements RowTraverser
 
     }
 
-    @Override
-    public PrimitiveValue[] getcurrent()
-    {
-        return current;
-    }
+
 
     public RowTraverser getChild()
     {
@@ -146,5 +160,13 @@ public class ProjectIterator implements RowTraverser
     public void setRowIterator(RowTraverser dataRowIterator)
     {
         DataRowIterator = dataRowIterator;
+    }
+
+    @Override
+    public PrimitiveValue eval(Column column) throws SQLException
+    {
+        int position = PositionFieldMapping.get(column.toString());
+
+        return current[position];
     }
 }
